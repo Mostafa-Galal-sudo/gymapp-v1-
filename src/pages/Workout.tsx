@@ -14,15 +14,37 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
   const [total, setTotal]   = useState(defaultSeconds);
   const [seconds, setSeconds] = useState(defaultSeconds);
   const [active, setActive] = useState(false);
+  const [isAlarming, setIsAlarming] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      if ((window as any)._vibId) {
+        clearInterval((window as any)._vibId);
+        navigator.vibrate?.(0);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!active) return;
     if (seconds <= 0) {
       setActive(false);
-      if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+      setIsAlarming(true);
+      if (navigator.vibrate) {
+        const vibId = setInterval(() => navigator.vibrate?.([300, 100, 300]), 1000);
+        (window as any)._vibId = vibId;
+      }
       try {
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-        audio.play();
+        if (!audioRef.current) {
+          audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+          audioRef.current.loop = true;
+        }
+        audioRef.current.play();
       } catch (e) {}
       return;
     }
@@ -30,13 +52,38 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
     return () => clearInterval(id);
   }, [active, seconds]);
 
-  const start = (t: number) => { setTotal(t); setSeconds(t); setActive(true); };
+  const stopAlarm = () => {
+    setIsAlarming(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    if ((window as any)._vibId) {
+      clearInterval((window as any)._vibId);
+      navigator.vibrate?.(0);
+    }
+  };
+
+  const toggleTimer = () => {
+    if (isAlarming) {
+      stopAlarm();
+      setSeconds(total);
+    } else {
+      setActive(!active);
+    }
+  };
+
+  const start = (t: number) => { 
+    stopAlarm();
+    setTotal(t); setSeconds(t); setActive(true); 
+  };
+
   const pct = total === 0 ? 0 : seconds / total;
   const size = 100;
   const sw = 8;
   const r = (size - sw) / 2;
   const circ = 2 * Math.PI * r;
-  const color = seconds <= 10 ? 'var(--magenta)' : 'var(--cyan)';
+  const color = isAlarming ? 'var(--magenta)' : (seconds <= 10 ? 'var(--magenta)' : 'var(--cyan)');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
@@ -50,7 +97,7 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
           />
         </svg>
         <div 
-          onClick={() => setActive(!active)}
+          onClick={toggleTimer}
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -61,7 +108,7 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
             {Math.floor(seconds/60)}:{(seconds%60).toString().padStart(2,'0')}
           </span>
           <span style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            {active ? 'PAUSE' : 'PLAY'}
+            {isAlarming ? 'STOP' : (active ? 'PAUSE' : 'PLAY')}
           </span>
         </div>
       </div>
@@ -102,6 +149,7 @@ const ModalWrapper = ({ children, onClose }: any) => (
 
 // ── Notes Modal with Dictation ──
 const NotesModal = ({ exerciseId, name, initNotes, onClose }: any) => {
+  const t = useT();
   const [text, setText] = useState(initNotes || '');
   const [listening, setListening] = useState(false);
   const updateNotes = useWorkoutStore(s => s.updateNotes);
@@ -144,7 +192,7 @@ const NotesModal = ({ exerciseId, name, initNotes, onClose }: any) => {
 
   return (
     <ModalWrapper onClose={onClose}>
-      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{useT()('workout.notes')}: {name}</h3>
+      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workout.notes')}: {name}</h3>
       <textarea
         value={text} onChange={e => setText(e.target.value)}
         rows={6} placeholder="How did this exercise feel? Any pain?"
@@ -152,9 +200,9 @@ const NotesModal = ({ exerciseId, name, initNotes, onClose }: any) => {
       />
       <div style={{ display: 'flex', gap: '1rem' }}>
         <button onClick={toggleListen} className="btn-secondary" style={{ flex: 1, borderColor: listening ? 'var(--magenta)' : 'var(--cyan)', color: listening ? 'var(--magenta)' : 'var(--cyan)' }}>
-          {listening ? <MicOff size={18} /> : <Mic size={18} />} {listening ? useT()('workout.stop') : useT()('workout.dictate')}
+          {listening ? <MicOff size={18} /> : <Mic size={18} />} {listening ? t('workout.stop') : t('workout.dictate')}
         </button>
-        <button onClick={handleSave} className="btn-primary" style={{ flex: 1 }}>{useT()('common.save')}</button>
+        <button onClick={handleSave} className="btn-primary" style={{ flex: 1 }}>{t('common.save')}</button>
       </div>
     </ModalWrapper>
   );
@@ -162,6 +210,7 @@ const NotesModal = ({ exerciseId, name, initNotes, onClose }: any) => {
 
 // ── Swap Modal ──
 const SwapModal = ({ currentExId, currentCategory, currentMuscle, onClose }: any) => {
+  const t = useT();
   const swapExercise = useWorkoutStore(s => s.swapExercise);
   const getAllExercises = useExerciseStore(s => s.getAllExercises);
   const [search, setSearch] = useState('');
@@ -182,8 +231,8 @@ const SwapModal = ({ currentExId, currentCategory, currentMuscle, onClose }: any
 
   return (
     <ModalWrapper onClose={onClose}>
-      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{useT()('workout.swap')}</h3>
-      <input type="text" placeholder={useT()('workout.search_alt')} value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: '1rem' }} />
+      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workout.swap')}</h3>
+      <input type="text" placeholder={t('workout.search_alt')} value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: '1rem' }} />
 
       <div style={{ maxHeight: 300, overflowY: 'auto' }}>
         {filtered.map(ex => (
@@ -203,6 +252,7 @@ const SwapModal = ({ currentExId, currentCategory, currentMuscle, onClose }: any
 
 // ── Custom Exercise Manager Modal ──
 const CustomExerciseManager = ({ onClose }: any) => {
+  const t = useT();
   const addCustomExercise = useExerciseStore(s => s.addCustomExercise);
   const duplicateExercise = useExerciseStore(s => s.duplicateExercise);
   const deleteCustomExercise = useExerciseStore(s => s.deleteCustomExercise);
@@ -227,26 +277,26 @@ const CustomExerciseManager = ({ onClose }: any) => {
   return (
     <ModalWrapper onClose={onClose}>
       <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
-        {mode === 'list' ? useT()('workout.custom_manager') : useT()('workout.create_new')}
+        {mode === 'list' ? t('workout.custom_manager') : t('workout.create_new')}
       </h3>
       
       {mode === 'create' ? (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-            <input type="text" placeholder={useT()('workout.ex_name')} value={name} onChange={e => setName(e.target.value)} />
+            <input type="text" placeholder={t('workout.ex_name')} value={name} onChange={e => setName(e.target.value)} />
             <select value={category} onChange={e => setCategory(e.target.value)}>
               {['Push', 'Pull', 'Legs', 'Neck', 'Hand/Grip', 'Face', 'Eye', 'Breathing'].map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <input type="text" placeholder="Muscle Group (e.g. Biceps)" value={muscle} onChange={e => setMuscle(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button onClick={() => setMode('list')} className="btn-secondary" style={{ flex: 1 }}>{useT()('common.cancel')}</button>
-            <button onClick={handleSave} className="btn-primary" style={{ flex: 1 }}>{useT()('common.save')}</button>
+            <button onClick={() => setMode('list')} className="btn-secondary" style={{ flex: 1 }}>{t('common.cancel')}</button>
+            <button onClick={handleSave} className="btn-primary" style={{ flex: 1 }}>{t('common.save')}</button>
           </div>
         </>
       ) : (
         <>
-          <button onClick={() => setMode('create')} className="btn-primary" style={{ width: '100%', marginBottom: '1rem' }}>+ {useT()('workout.create_new')}</button>
+          <button onClick={() => setMode('create')} className="btn-primary" style={{ width: '100%', marginBottom: '1rem' }}>+ {t('workout.create_new')}</button>
           <div style={{ maxHeight: 300, overflowY: 'auto' }}>
             {customExercises.length === 0 ? (
               <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>No custom exercises yet.</div>
@@ -271,6 +321,7 @@ const CustomExerciseManager = ({ onClose }: any) => {
 
 // ── Exercise History Modal ──
 const HistoryModal = ({ exerciseId, name, onClose }: any) => {
+  const t = useT();
   const history = useWorkoutStore(s => s.history);
   
   // Find all instances of this exercise in history
@@ -282,7 +333,7 @@ const HistoryModal = ({ exerciseId, name, onClose }: any) => {
 
   return (
     <ModalWrapper onClose={onClose}>
-      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{useT()('workout.history')}: {name}</h3>
+      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workout.history')}: {name}</h3>
       {instances.length === 0 ? (
         <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No history found for this exercise.</div>
       ) : (
@@ -300,7 +351,7 @@ const HistoryModal = ({ exerciseId, name, onClose }: any) => {
                     <span style={{ fontFamily: 'var(--font-mono)' }}>{set.weight}kg x {set.reps} <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>(RPE {set.rpe})</span></span>
                   </div>
                 ))}
-                {bestSet && <div style={{ fontSize: '0.7rem', color: 'var(--gold)', marginTop: '0.5rem' }}>{useT()('workout.top_set')}: {bestSet.weight}kg x {bestSet.reps}</div>}
+                {bestSet && <div style={{ fontSize: '0.7rem', color: 'var(--gold)', marginTop: '0.5rem' }}>{t('workout.top_set')}: {bestSet.weight}kg x {bestSet.reps}</div>}
               </div>
             );
           })}
@@ -312,6 +363,7 @@ const HistoryModal = ({ exerciseId, name, onClose }: any) => {
 
 // ── Add Exercise Modal ─────────────────────────────────────────────────────────
 const AddExerciseModal = ({ onClose }: any) => {
+  const t = useT();
   const addExercise = useWorkoutStore(s => s.addExerciseToSession);
   const getAllExercises = useExerciseStore(s => s.getAllExercises);
   const activeSession = useWorkoutStore(s => s.activeSession);
@@ -334,9 +386,9 @@ const AddExerciseModal = ({ onClose }: any) => {
   return (
     <ModalWrapper onClose={onClose}>
       <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
-        {useT()('workout.add_exercise') || 'إضافة تمرين'}
+        {t('workout.add_exercise') || 'إضافة تمرين'}
       </h3>
-      <input type="text" placeholder={useT()('workout.search_alt')} value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: '1rem' }} />
+      <input type="text" placeholder={t('workout.search_alt')} value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: '1rem' }} />
 
       <div style={{ maxHeight: 300, overflowY: 'auto' }}>
         {filtered.map(ex => (
@@ -356,6 +408,7 @@ const AddExerciseModal = ({ onClose }: any) => {
 
 // ── Warmup & Cooldown Checklists ──────────────────────────────────────────────
 const ChecklistPhase = ({ title, items, onComplete }: { title: string, items: string[], onComplete: () => void }) => {
+  const t = useT();
   const [checked, setChecked] = useState<number[]>([]);
   return (
     <div className="page" style={{ padding: '1rem 1rem 7rem' }}>
@@ -384,7 +437,7 @@ const ChecklistPhase = ({ title, items, onComplete }: { title: string, items: st
         })}
       </div>
       <button onClick={onComplete} className="btn-primary" style={{ width: '100%', padding: '1rem' }}>
-        {useT()('workout.proceed')} <ChevronRight size={18} style={{ marginLeft: 4 }} />
+        {t('workout.proceed')} <ChevronRight size={18} style={{ marginLeft: 4 }} />
       </button>
     </div>
   );
@@ -392,6 +445,7 @@ const ChecklistPhase = ({ title, items, onComplete }: { title: string, items: st
 
 // ── Main Player ───────────────────────────────────────────────────────────────
 const WorkoutPlayer = () => {
+  const t = useT();
   const activeSession = useWorkoutStore(s => s.activeSession);
   const updateSet     = useWorkoutStore(s => s.updateSet);
   const finishSession = useWorkoutStore(s => s.finishSession);
@@ -425,7 +479,7 @@ const WorkoutPlayer = () => {
       'Dynamic mobility (10 reps)',
       'Empty bar / lightweight activation (2 sets x 15 reps)'
     ];
-    return <ChecklistPhase title={useT()('workout.warmup')} items={items} onComplete={() => setPhase('main')} />;
+    return <ChecklistPhase title={t('workout.warmup')} items={items} onComplete={() => setPhase('main')} />;
   }
 
   if (activeSession.phase === 'cooldown') {
@@ -435,7 +489,7 @@ const WorkoutPlayer = () => {
       '5 Deep diaphragmatic breaths',
       'Hang from pullup bar (30s)'
     ];
-    return <ChecklistPhase title={useT()('workout.cooldown')} items={items} onComplete={finishSession} />;
+    return <ChecklistPhase title={t('workout.cooldown')} items={items} onComplete={finishSession} />;
   }
 
   const handleComplete = (exId: string, setNum: number) => {
@@ -468,14 +522,14 @@ const WorkoutPlayer = () => {
       <div className="page" style={{ padding: '1rem 1rem 7rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
-            <div className="section-label">{useT()('workout.active_session')}</div>
+            <div className="section-label">{t('workout.active_session')}</div>
             <h1 className="neon-cyan display" style={{ fontSize: '2.2rem' }}>{activeSession.type}</h1>
           </div>
           <CircularTimer defaultSeconds={120} />
         </div>
 
         <button onClick={() => setModalType('plate')} className="btn-secondary" style={{ width: '100%', marginBottom: '1.25rem', padding: '0.75rem' }}>
-          {useT()('workout.open_calc')}
+          {t('workout.open_calc')}
         </button>
 
         {activeSession.exercises.map((ex, idx) => {
@@ -527,7 +581,7 @@ const WorkoutPlayer = () => {
                       </button>
                     </div>
                   ))}
-                  {ex.notes && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '4px', marginTop: '0.5rem' }}><strong>{useT()('workout.notes')}:</strong> {ex.notes}</div>}
+                  {ex.notes && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', background: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '4px', marginTop: '0.5rem' }}><strong>{t('workout.notes')}:</strong> {ex.notes}</div>}
                 </div>
               )}
             </div>
@@ -535,10 +589,10 @@ const WorkoutPlayer = () => {
         })}
 
         <button onClick={() => setModalType('add')} className="btn-secondary" style={{ width: '100%', padding: '1rem', marginTop: '1rem', borderStyle: 'dashed' }}>
-          + {useT()('workout.add_exercise') || 'Add Exercise'}
+          + {t('workout.add_exercise') || 'Add Exercise'}
         </button>
 
-        <button onClick={() => setPhase('cooldown')} className="btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>{useT()('workout.finish_main')}</button>
+        <button onClick={() => setPhase('cooldown')} className="btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>{t('workout.finish_main')}</button>
       </div>
     </>
   );

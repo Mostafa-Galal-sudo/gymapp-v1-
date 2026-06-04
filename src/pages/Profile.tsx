@@ -7,7 +7,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { format } from 'date-fns';
-import { Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity, HeartPulse, ShieldCheck, Globe, Calendar, ChevronUp, ChevronDown } from 'lucide-react';
+import { Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity, HeartPulse, ShieldCheck, Globe, ChevronUp, ChevronDown } from 'lucide-react';
 import { useT } from '../hooks/useT';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { Capacitor } from '@capacitor/core';

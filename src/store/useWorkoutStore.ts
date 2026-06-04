@@ -37,6 +37,8 @@ interface WorkoutState {
   updateNotes: (exerciseId: string, notes: string) => void;
   addVoiceNote: (exerciseId: string, voiceNote: string) => void;
   swapExercise: (oldId: string, newId: string) => void;
+  addExerciseToSession: (exerciseId: string) => void;
+  removeExerciseFromSession: (exerciseId: string) => void;
   setPhase: (phase: 'warmup' | 'main' | 'cooldown') => void;
   finishSession: () => void;
   getSuggestedWeight: (exerciseId: string) => number;
@@ -119,6 +121,28 @@ export const useWorkoutStore = create<WorkoutState>()(
           if (ex.exerciseId !== oldId) return ex;
           return { ...ex, exerciseId: newId }; // keep sets and notes, just swap ID
         });
+        return { activeSession: { ...state.activeSession, exercises } };
+      }),
+
+      addExerciseToSession: (exerciseId) => set((state) => {
+        if (!state.activeSession) return state;
+        const suggestedWeight = get().getSuggestedWeight(exerciseId);
+        const newExercise = {
+          exerciseId,
+          notes: '',
+          voiceNotes: [],
+          sets: [
+            { setNumber: 1, weight: suggestedWeight, reps: 0, rpe: 0, completed: false },
+            { setNumber: 2, weight: suggestedWeight, reps: 0, rpe: 0, completed: false },
+            { setNumber: 3, weight: suggestedWeight, reps: 0, rpe: 0, completed: false }
+          ]
+        };
+        return { activeSession: { ...state.activeSession, exercises: [...state.activeSession.exercises, newExercise] } };
+      }),
+
+      removeExerciseFromSession: (exerciseId) => set((state) => {
+        if (!state.activeSession) return state;
+        const exercises = state.activeSession.exercises.filter(ex => ex.exerciseId !== exerciseId);
         return { activeSession: { ...state.activeSession, exercises } };
       }),
 

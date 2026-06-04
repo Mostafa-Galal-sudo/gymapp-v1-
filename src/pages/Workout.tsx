@@ -5,7 +5,7 @@ import { useExerciseStore } from '../store/useExerciseStore';
 import { PlateCalculator } from '../components/PlateCalculator';
 import {
   Play, Check, ChevronDown, ChevronUp, X, 
-  Mic, MicOff, Edit3, ArrowLeftRight, Star, History, Plus
+  Mic, MicOff, Edit3, ArrowLeftRight, Star, History, Plus, ChevronRight
 } from 'lucide-react';
 import { useT } from '../hooks/useT';
 
@@ -20,6 +20,10 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
     if (seconds <= 0) {
       setActive(false);
       if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.play();
+      } catch (e) {}
       return;
     }
     const id = setInterval(() => setSeconds(s => s - 1), 1000);
@@ -45,14 +49,20 @@ const CircularTimer = ({ defaultSeconds }: { defaultSeconds: number }) => {
             style={{ filter: `drop-shadow(0 0 6px ${color})`, transition: 'stroke-dashoffset 1s linear, stroke 0.3s' }}
           />
         </svg>
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        }}>
+        <div 
+          onClick={() => setActive(!active)}
+          style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer'
+          }}
+        >
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color, lineHeight: 1 }}>
             {Math.floor(seconds/60)}:{(seconds%60).toString().padStart(2,'0')}
           </span>
-          <span style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)', letterSpacing: '0.12em' }}>{useT()('workout.rest_label')}</span>
+          <span style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {active ? 'PAUSE' : 'PLAY'}
+          </span>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
@@ -300,6 +310,50 @@ const HistoryModal = ({ exerciseId, name, onClose }: any) => {
   );
 };
 
+// ── Add Exercise Modal ─────────────────────────────────────────────────────────
+const AddExerciseModal = ({ onClose }: any) => {
+  const addExercise = useWorkoutStore(s => s.addExerciseToSession);
+  const getAllExercises = useExerciseStore(s => s.getAllExercises);
+  const activeSession = useWorkoutStore(s => s.activeSession);
+  const [search, setSearch] = useState('');
+
+  const exercises = getAllExercises();
+  const existingIds = activeSession?.exercises.map(e => e.exerciseId) || [];
+  
+  const filtered = exercises.filter(e => {
+    if (existingIds.includes(e.id)) return false;
+    if (search) return e.name.toLowerCase().includes(search.toLowerCase());
+    return true;
+  });
+
+  const handleAdd = (newId: string) => {
+    addExercise(newId);
+    onClose();
+  };
+
+  return (
+    <ModalWrapper onClose={onClose}>
+      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
+        {useT()('workout.add_exercise') || 'إضافة تمرين'}
+      </h3>
+      <input type="text" placeholder={useT()('workout.search_alt')} value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: '1rem' }} />
+
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {filtered.map(ex => (
+          <button key={ex.id} onClick={() => handleAdd(ex.id)}
+            style={{
+              width: '100%', textAlign: 'left', padding: '0.75rem',
+              borderBottom: '1px solid rgba(0,240,255,0.1)', color: 'var(--color-text)',
+            }}>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{ex.name}</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{ex.category} · {ex.muscleGroup}</div>
+          </button>
+        ))}
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ── Warmup & Cooldown Checklists ──────────────────────────────────────────────
 const ChecklistPhase = ({ title, items, onComplete }: { title: string, items: string[], onComplete: () => void }) => {
   const [checked, setChecked] = useState<number[]>([]);
@@ -347,9 +401,10 @@ const WorkoutPlayer = () => {
   const toggleFavorite= useExerciseStore(s => s.toggleFavorite);
   const favorites     = useExerciseStore(s => s.favoriteExerciseIds);
 
-  const [modalType, setModalType] = useState<'notes' | 'swap' | 'plate' | 'history' | 'create' | null>(null);
+  const [modalType, setModalType] = useState<'notes' | 'swap' | 'plate' | 'history' | 'create' | 'add' | null>(null);
   const [modalEx, setModalEx] = useState<any>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const removeExercise = useWorkoutStore(s => s.removeExerciseFromSession);
 
   useEffect(() => {
     let wl: any = null;
@@ -408,6 +463,7 @@ const WorkoutPlayer = () => {
       {modalType === 'plate' && <ModalWrapper onClose={() => setModalType(null)}><PlateCalculator /></ModalWrapper>}
       {modalType === 'history' && <HistoryModal exerciseId={modalEx.id} name={modalEx.name} onClose={() => setModalType(null)} />}
       {modalType === 'create' && <CustomExerciseManager onClose={() => setModalType(null)} />}
+      {modalType === 'add' && <AddExerciseModal onClose={() => setModalType(null)} />}
 
       <div className="page" style={{ padding: '1rem 1rem 7rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
@@ -445,6 +501,7 @@ const WorkoutPlayer = () => {
                   <button onClick={() => { setModalEx(def); setModalType('history'); }} style={{ color: 'var(--color-text-muted)', padding: '0.4rem' }}><History size={16} /></button>
                   <button onClick={() => { setModalEx(def); setModalType('swap'); }} style={{ color: 'var(--cyan)', padding: '0.4rem' }}><ArrowLeftRight size={16} /></button>
                   <button onClick={() => { setModalEx(def); setModalType('notes'); }} style={{ color: 'var(--color-text-muted)', padding: '0.4rem' }}><Edit3 size={16} /></button>
+                  <button onClick={() => removeExercise(ex.exerciseId)} style={{ color: 'var(--magenta)', padding: '0.4rem' }}><X size={16} /></button>
                   <button onClick={() => setCollapsed(c => ({ ...c, [ex.exerciseId]: !c[ex.exerciseId] }))} style={{ color: 'var(--color-text-muted)', padding: '0.4rem' }}>
                     {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
                   </button>
@@ -476,6 +533,10 @@ const WorkoutPlayer = () => {
             </div>
           );
         })}
+
+        <button onClick={() => setModalType('add')} className="btn-secondary" style={{ width: '100%', padding: '1rem', marginTop: '1rem', borderStyle: 'dashed' }}>
+          + {useT()('workout.add_exercise') || 'Add Exercise'}
+        </button>
 
         <button onClick={() => setPhase('cooldown')} className="btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>{useT()('workout.finish_main')}</button>
       </div>
@@ -526,6 +587,4 @@ const Workout = () => {
   );
 };
 
-// @ts-ignore - Lucide ChevronRight used in ChecklistPhase
-import { ChevronRight } from 'lucide-react';
 export default Workout;

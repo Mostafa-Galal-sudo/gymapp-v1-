@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNutritionStore } from '../store/useNutritionStore';
 import type { LoggedFood } from '../store/useNutritionStore';
 import { useUserStore } from '../store/useUserStore';
+import { startOfDay } from 'date-fns';
 import { FOOD_DATABASE } from '../data/foods';
 import type { Food } from '../data/foods';
 import { useGamificationStore } from '../store/useGamificationStore';
@@ -141,6 +142,7 @@ const Nutrition = () => {
   const t            = useT();
   const profile      = useUserStore(s => s.profile);
   const getTodayLog  = useNutritionStore(s => s.getTodayLog);
+  const historyData  = useNutritionStore(s => s.history);
   const getTargets   = useNutritionStore(s => s.getTargets);
   const addFood      = useNutritionStore(s => s.addFood);
   const removeFood   = useNutritionStore(s => s.removeFood);
@@ -148,7 +150,8 @@ const Nutrition = () => {
   const addXP        = useGamificationStore(s => s.addXP);
   const unlockBadge  = useGamificationStore(s => s.unlockBadge);
 
-  const todayLog = getTodayLog();
+  const todayStr = startOfDay(new Date()).getTime();
+  const todayLog = historyData[todayStr] || getTodayLog();
   const targets  = getTargets(profile.weight);
   addWaterFn     = (ml) => { addWater(todayLog.date, ml); };
 

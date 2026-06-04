@@ -7,9 +7,11 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { format } from 'date-fns';
-import { Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity, HeartPulse, ShieldCheck, Globe } from 'lucide-react';
+import { Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity, HeartPulse, ShieldCheck, Globe, Calendar, ChevronUp, ChevronDown } from 'lucide-react';
 import { useT } from '../hooks/useT';
 import { useLanguageStore } from '../store/useLanguageStore';
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
 
 // ── Custom Recharts Tooltip ───────────────────────────────────────────────────
 const ChartTooltip = ({ active, payload, label }: any) => {
@@ -113,6 +115,105 @@ const TrophyRoom = () => {
   );
 };
 
+// ── Workout History View ───────────────────────────────────────────────────────
+const WorkoutHistoryView = () => {
+  const history = useWorkoutStore(s => s.history);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingSet, setEditingSet] = useState<{ sessionIdx: number; exIdx: number; setIdx: number } | null>(null);
+  const [editVals, setEditVals] = useState({ weight: 0, reps: 0, rpe: 0 });
+  const [localHistory, setLocalHistory] = useState(() => [...history].reverse());
+
+  const handleSaveEdit = () => {
+    if (!editingSet) return;
+    const { sessionIdx, exIdx, setIdx } = editingSet;
+    setLocalHistory(prev => {
+      const updated = prev.map((s, si) => {
+        if (si !== sessionIdx) return s;
+        const exercises = s.exercises.map((ex, ei) => {
+          if (ei !== exIdx) return ex;
+          const sets = ex.sets.map((st, sti) => {
+            if (sti !== setIdx) return st;
+            return { ...st, ...editVals };
+          });
+          return { ...ex, sets };
+        });
+        return { ...s, exercises };
+      });
+      return updated;
+    });
+    setEditingSet(null);
+  };
+
+  if (localHistory.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: '2rem 0', fontSize: '0.9rem' }}>
+        لا يوجد سجل تمارين بعد. ابدأ جلستك الأولى!
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      {localHistory.map((session, si) => {
+        const isExpanded = expandedId === session.sessionId;
+        return (
+          <div key={session.sessionId} className="glass-card animate-fade-up" style={{ marginBottom: '0.75rem' }}>
+            <button
+              onClick={() => setExpandedId(isExpanded ? null : session.sessionId)}
+              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', color: 'var(--color-text)' }}
+            >
+              <div>
+                <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '1rem' }}>{session.type}</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.15rem' }}>
+                  {format(new Date(session.date), 'dd MMM yyyy')} · {session.totalVolume.toLocaleString()} kg
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--cyan)' }}>{session.exercises.length} تمرين</span>
+                {isExpanded ? <ChevronUp size={16} color="var(--color-text-muted)" /> : <ChevronDown size={16} color="var(--color-text-muted)" />}
+              </div>
+            </button>
+
+            {isExpanded && (
+              <div style={{ padding: '0 1.25rem 1rem' }}>
+                {session.exercises.map((ex, ei) => (
+                  <div key={ex.exerciseId} style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--cyan)', fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '0.5rem' }}>
+                      {ex.exerciseId}
+                    </div>
+                    {ex.sets.filter(s => s.completed).map((set, sti) => {
+                      const isEditing = editingSet?.sessionIdx === si && editingSet?.exIdx === ei && editingSet?.setIdx === sti;
+                      return (
+                        <div key={set.setNumber} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--color-text-muted)', width: 40 }}>Set {set.setNumber}</span>
+                          {isEditing ? (
+                            <>
+                              <input type="number" value={editVals.weight} onChange={e => setEditVals(v => ({ ...v, weight: +e.target.value }))} style={{ width: 56, textAlign: 'center', padding: '0.2rem' }} placeholder="kg" />
+                              <span style={{ color: 'var(--color-text-muted)' }}>×</span>
+                              <input type="number" value={editVals.reps} onChange={e => setEditVals(v => ({ ...v, reps: +e.target.value }))} style={{ width: 48, textAlign: 'center', padding: '0.2rem' }} placeholder="reps" />
+                              <button onClick={handleSaveEdit} className="btn-primary" style={{ padding: '0.2rem 0.6rem', fontSize: '0.72rem' }}>✓</button>
+                              <button onClick={() => setEditingSet(null)} style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>✕</button>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text)', flex: 1 }}>{set.weight}kg × {set.reps} <span style={{ color: 'var(--color-text-muted)' }}>RPE {set.rpe}</span></span>
+                              <button onClick={() => { setEditingSet({ sessionIdx: si, exIdx: ei, setIdx: sti }); setEditVals({ weight: set.weight, reps: set.reps, rpe: set.rpe }); }} style={{ color: 'var(--cyan)', fontSize: '0.65rem', padding: '0.1rem 0.4rem', border: '1px solid rgba(0,240,255,0.2)', borderRadius: 4 }}>تعديل</button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ── Profile Page ──────────────────────────────────────────────────────────────
 const Profile = () => {
   const userStore       = useUserStore();
@@ -124,7 +225,7 @@ const Profile = () => {
   const { lang, toggleLang } = useLanguageStore();
 
   const [newWeight, setNewWeight] = useState('');
-  const [tab, setTab]            = useState<'stats' | 'trophies'>('trophies');
+  const [tab, setTab] = useState<'stats' | 'trophies' | 'history'>('trophies');
   
   // Injury State
   const [injuries, setInjuries] = useState([
@@ -141,20 +242,43 @@ const Profile = () => {
     setNewInjury({ part: '', severity: 5 });
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const data = {
       user:        JSON.parse(localStorage.getItem('omnibody-user-storage')      || '{}').state,
       workout:     JSON.parse(localStorage.getItem('omnibody-workout-storage')   || '{}').state,
       nutrition:   JSON.parse(localStorage.getItem('omnibody-nutrition-storage') || '{}').state,
       gamification:JSON.parse(localStorage.getItem('omnibody-gamification-storage') || '{}').state,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `omnibody-backup-${format(new Date(), 'yyyy-MM-dd')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const jsonString = JSON.stringify(data, null, 2);
+    const fileName = `omnibody-backup-${format(new Date(), 'yyyy-MM-dd')}.json`;
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        await Filesystem.writeFile({
+          path: fileName,
+          data: btoa(unescape(encodeURIComponent(jsonString))),
+          directory: Directory.Cache,
+        });
+        const fileUri = await Filesystem.getUri({ directory: Directory.Cache, path: fileName });
+        await Share.share({
+          title: 'OmniBody Backup',
+          text: 'My OmniBody data backup',
+          url: fileUri.uri,
+          dialogTitle: 'Export Data',
+        });
+      } catch (err) {
+        console.error('Export failed', err);
+      }
+    } else {
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,7 +314,7 @@ const Profile = () => {
   const totalSessions = workoutStore.history.length;
   const totalVolume   = workoutStore.history.reduce((a, s) => a + s.totalVolume, 0);
 
-  const TabBtn = ({ id, label }: { id: 'stats' | 'trophies'; label: string }) => (
+  const TabBtn = ({ id, label }: { id: 'stats' | 'trophies' | 'history'; label: string }) => (
     <button onClick={() => setTab(id)} style={{
       flex: 1, padding: '0.65rem', fontFamily: 'var(--font-heading)',
       fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.08em', textTransform: 'uppercase',
@@ -258,15 +382,15 @@ const Profile = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={16} /> {t('profile.apple_health')}</div>
-            <button className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => alert('Mock: Syncing with Apple Health...')}>{t('profile.connect')}</button>
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>قريباً</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><HeartPulse size={16} /> {t('profile.garmin')}</div>
-            <button className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', color: 'var(--color-success)', borderColor: 'var(--color-success)' }}>{t('profile.connected')}</button>
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-success)' }}>✓ Demo</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShieldCheck size={16} /> {t('profile.whoop')}</div>
-            <button className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => alert('Mock: Syncing with Whoop API...')}>{t('profile.connect')}</button>
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>قريباً</span>
           </div>
         </div>
       </div>
@@ -314,6 +438,7 @@ const Profile = () => {
       <div style={{ display: 'flex', borderBottom: '1px solid rgba(0,240,255,0.1)', marginBottom: '1.25rem' }}>
         <TabBtn id="trophies" label={`🏆 ${t('profile.trophies')}`} />
         <TabBtn id="stats" label={`📈 ${t('profile.progress')}`} />
+        <TabBtn id="history" label={`📋 ${t('profile.history') || 'سجل التمارين'}`} />
       </div>
 
       {tab === 'trophies' && <TrophyRoom />}
@@ -357,7 +482,9 @@ const Profile = () => {
         </div>
       )}
 
-      {/* App Settings (Always Visible) */}
+      {tab === 'history' && <WorkoutHistoryView />}
+
+      {/* App Settings */}
       <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
         <div className="section-label">{t('profile.app_settings')}</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>

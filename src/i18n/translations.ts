@@ -194,6 +194,7 @@ export const translations = {
     'profile.no_injuries':   'No active injuries.',
     'profile.recovering':    'Recovering',
     'profile.active':        'Active',
+    'profile.history':       'Workout Log',
 
     // ── Muscle Map ───────────────────────────────────────────────
     'muscle.title':          'MUSCLE MAP',
@@ -420,6 +421,7 @@ export const translations = {
     'profile.no_injuries':   'لا توجد إصابات حالية.',
     'profile.recovering':    'يتعافى',
     'profile.active':        'نشط',
+    'profile.history':       'سجل التمارين',
 
     // ── Muscle Map ───────────────────────────────────────────────
     'muscle.title':          'خريطة العضلات',

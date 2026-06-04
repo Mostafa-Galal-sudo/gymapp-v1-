@@ -8,9 +8,11 @@ import {
   Zap, TrendingUp, AlertTriangle, Dumbbell, Droplet,
   ChevronRight, Activity, Share2, Accessibility, Minus, Plus, Brain
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import html2canvas from 'html2canvas';
 import { useT } from '../hooks/useT';
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
 
 // ── XP Level Bar ──────────────────────────────────────────────────────────────
 const XPBar = ({ xp, level }: { xp: number; level: number }) => {
@@ -303,12 +305,14 @@ const Dashboard = () => {
   const profile     = useUserStore(s => s.profile);
   const history     = useWorkoutStore(s => s.history);
   const volumeSpike = useWorkoutStore(s => s.volumeSpikeWarning);
+  const nutritionHistory = useNutritionStore(s => s.history);
   const getTodayLog = useNutritionStore(s => s.getTodayLog);
   const getTargets  = useNutritionStore(s => s.getTargets);
   const { xp, level, badges } = useGamificationStore();
   const navigate    = useNavigate();
 
-  const todayLog = getTodayLog();
+  const todayStr = startOfDay(new Date()).getTime();
+  const todayLog = nutritionHistory[todayStr] || getTodayLog();
   const targets  = getTargets(profile.weight);
 
   let totalCal = 0, totalPro = 0;
@@ -323,11 +327,32 @@ const Dashboard = () => {
     if (!target) return;
     try {
       const canvas = await html2canvas(target, { backgroundColor: '#0f172a' });
-      const image  = canvas.toDataURL('image/png');
-      const link   = document.createElement('a');
-      link.href     = image;
-      link.download = `Omnibody-Stats-${format(new Date(), 'yyyy-MM-dd')}.png`;
-      link.click();
+      const dataUrl = canvas.toDataURL('image/png');
+
+      if (Capacitor.isNativePlatform()) {
+        // On Android/iOS: use native share sheet
+        const base64 = dataUrl.split(',')[1];
+        const fileName = `Omnibody-Stats-${format(new Date(), 'yyyy-MM-dd')}.png`;
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        await Filesystem.writeFile({
+          path: fileName,
+          data: base64,
+          directory: Directory.Cache,
+        });
+        const fileUri = await Filesystem.getUri({ directory: Directory.Cache, path: fileName });
+        await Share.share({
+          title: 'OmniBody Stats',
+          text: 'Check out my fitness stats!',
+          url: fileUri.uri,
+          dialogTitle: 'Share your stats',
+        });
+      } else {
+        // Fallback for browser
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `Omnibody-Stats-${format(new Date(), 'yyyy-MM-dd')}.png`;
+        link.click();
+      }
     } catch (err) {
       console.error('Failed to generate share image', err);
     }

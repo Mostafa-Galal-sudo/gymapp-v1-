@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '../store/useUserStore';
 import { useWorkoutStore } from '../store/useWorkoutStore';
@@ -9,7 +10,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { format } from 'date-fns';
-import { Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity, HeartPulse, ShieldCheck, Globe, ChevronUp, ChevronDown, Edit2, Camera, X, Loader2 } from 'lucide-react';
+import {
+  Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity,
+  HeartPulse, ShieldCheck, Globe, ChevronUp, ChevronDown, Camera, X, Loader2
+} from 'lucide-react';
 import { useT } from '../hooks/useT';
 import { useLanguageStore } from '../store/useLanguageStore';
 import { Capacitor } from '@capacitor/core';
@@ -44,13 +48,12 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
-      // Compress image to max 400x400
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const max = 400;
         const scale = Math.min(max / img.width, max / img.height, 1);
-        canvas.width  = img.width  * scale;
+        canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
         const compressed = canvas.toDataURL('image/jpeg', 0.8);
@@ -62,10 +65,7 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
     reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
-    updateProfile(form);
-    onClose();
-  };
+  const handleSave = () => { updateProfile(form); onClose(); };
 
   const content = (
     <div style={{
@@ -93,13 +93,10 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
               overflow: 'hidden', boxShadow: 'var(--shadow-cyan)'
             }}
           >
-            {photoPreview ? (
-              <img src={photoPreview} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: '2.5rem', color: '#000' }}>
-                {form.name[0]?.toUpperCase()}
-              </span>
-            )}
+            {photoPreview
+              ? <img src={photoPreview} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontFamily: 'var(--font-display)', fontSize: '2.5rem', color: '#000' }}>{form.name[0]?.toUpperCase()}</span>
+            }
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}
               onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
               onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
@@ -173,27 +170,19 @@ const GarminConnectButton = () => {
         filters: [{ services: ['heart_rate'] }],
         optionalServices: ['heart_rate'],
       });
-
       const server = await device.gatt.connect();
       const service = await server.getPrimaryService('heart_rate');
       const characteristic = await service.getCharacteristic('heart_rate_measurement');
-
       charRef.current = characteristic;
-
       await characteristic.startNotifications();
       characteristic.addEventListener('characteristicvaluechanged', (e: any) => {
         const value = e.target.value;
-        // Parse Heart Rate Measurement per BLE spec
         const flags = value.getUint8(0);
         const is16bit = flags & 0x1;
         const hr = is16bit ? value.getUint16(1, true) : value.getUint8(1);
         setCurrentHR(hr);
       });
-
-      device.addEventListener('gattserverdisconnected', () => {
-        setScanning(false);
-      });
-
+      device.addEventListener('gattserverdisconnected', () => { setScanning(false); });
       setConnected(device.name || 'Garmin Device');
       setScanning(false);
       navigate('/device-live');
@@ -226,7 +215,8 @@ const GarminConnectButton = () => {
           background: scanning ? 'rgba(0,240,255,0.05)' : 'rgba(0,240,255,0.1)',
           border: '1px solid rgba(0,240,255,0.3)',
           borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem',
-          color: 'var(--cyan)', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: scanning ? 'not-allowed' : 'pointer'
+          color: 'var(--cyan)', display: 'flex', alignItems: 'center', gap: '0.4rem',
+          cursor: scanning ? 'not-allowed' : 'pointer'
         }}>
         {scanning ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <HeartPulse size={14} />}
         {scanning ? 'جاري البحث...' : 'اتصال حقيقي'}
@@ -237,39 +227,31 @@ const GarminConnectButton = () => {
   );
 };
 
-// ── imports needed for modals via portal
-import { createPortal } from 'react-dom';
-
 // ── Trophy Room ───────────────────────────────────────────────────────────────
 const TrophyRoom = () => {
   const { badges, xp, level } = useGamificationStore();
   const t = useT();
   const unlockedBadges = badges.filter(b => b.unlocked);
-  const lockedBadges   = badges.filter(b => !b.unlocked);
+  const lockedBadges = badges.filter(b => !b.unlocked);
 
   const levelNames = ['', t('dash.beginner'), t('dash.intermediate'), t('dash.advanced'), t('dash.elite'), t('dash.legend')];
-  const levelName  = levelNames[Math.min(level, 5)] || t('dash.legend');
+  const levelName = levelNames[Math.min(level, 5)] || t('dash.legend');
   const xpForLevel = level * level * 100;
-  const xpPrev     = (level - 1) * (level - 1) * 100;
-  const progress   = ((xp - xpPrev) / (xpForLevel - xpPrev)) * 100;
+  const xpPrev = (level - 1) * (level - 1) * 100;
+  const progress = ((xp - xpPrev) / (xpForLevel - xpPrev)) * 100;
 
   return (
     <div>
-      {/* Level Card */}
       <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem', textAlign: 'center' }}>
         <div style={{ fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
           {t('profile.current_rank')}
         </div>
-        <div style={{
-          fontFamily: 'var(--font-display)', fontSize: '3.5rem',
-          letterSpacing: '0.08em', lineHeight: 1,
-        }} className="gradient-text">
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: '3.5rem', letterSpacing: '0.08em', lineHeight: 1 }} className="gradient-text">
           {levelName.toUpperCase()}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', fontSize: '0.8rem', margin: '0.5rem 0 1rem' }}>
           {t('dash.level')} {level} · {xp.toLocaleString()} {t('profile.total_xp')}
         </div>
-
         <div className="xp-bar-track" style={{ height: 10, borderRadius: 'var(--radius-full)', overflow: 'visible' }}>
           <div className="xp-bar-fill" style={{ width: `${Math.min(progress, 100)}%` }} />
         </div>
@@ -279,7 +261,6 @@ const TrophyRoom = () => {
         </div>
       </div>
 
-      {/* Unlocked Badges */}
       {unlockedBadges.length > 0 && (
         <div style={{ marginBottom: '1.5rem' }}>
           <div className="section-label" style={{ color: 'var(--gold)' }}>
@@ -288,12 +269,9 @@ const TrophyRoom = () => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
             {unlockedBadges.map((badge, i) => (
-              <div key={badge.id} className="badge-card unlocked animate-badge-pop"
-                style={{ animationDelay: `${i * 0.06}s` }}>
+              <div key={badge.id} className="badge-card unlocked animate-badge-pop" style={{ animationDelay: `${i * 0.06}s` }}>
                 <span className="badge-icon">{badge.icon}</span>
-                <div style={{ fontSize: '0.7rem', fontWeight: 700, fontFamily: 'var(--font-heading)', letterSpacing: '0.04em', textAlign: 'center', lineHeight: 1.3 }}>
-                  {badge.name}
-                </div>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, fontFamily: 'var(--font-heading)', letterSpacing: '0.04em', textAlign: 'center', lineHeight: 1.3 }}>{badge.name}</div>
                 {badge.unlockedAt && (
                   <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
                     {format(new Date(badge.unlockedAt), 'MMM d')}
@@ -305,19 +283,14 @@ const TrophyRoom = () => {
         </div>
       )}
 
-      {/* Locked Badges */}
       <div>
         <div className="section-label">{t('profile.locked')} — {lockedBadges.length} {t('profile.remaining')}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
           {lockedBadges.map(badge => (
             <div key={badge.id} className="badge-card locked">
               <span style={{ fontSize: '2rem', lineHeight: 1 }}>{badge.icon}</span>
-              <div style={{ fontSize: '0.68rem', fontWeight: 700, fontFamily: 'var(--font-heading)', textAlign: 'center', lineHeight: 1.3 }}>
-                {badge.name}
-              </div>
-              <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', textAlign: 'center', lineHeight: 1.4 }}>
-                {badge.description}
-              </div>
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, fontFamily: 'var(--font-heading)', textAlign: 'center', lineHeight: 1.3 }}>{badge.name}</div>
+              <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', textAlign: 'center', lineHeight: 1.4 }}>{badge.description}</div>
             </div>
           ))}
         </div>
@@ -326,7 +299,7 @@ const TrophyRoom = () => {
   );
 };
 
-// ── Workout History View ───────────────────────────────────────────────────────
+// ── Workout History View ──────────────────────────────────────────────────────
 const WorkoutHistoryView = () => {
   const history = useWorkoutStore(s => s.history);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -337,21 +310,15 @@ const WorkoutHistoryView = () => {
   const handleSaveEdit = () => {
     if (!editingSet) return;
     const { sessionIdx, exIdx, setIdx } = editingSet;
-    setLocalHistory(prev => {
-      const updated = prev.map((s, si) => {
-        if (si !== sessionIdx) return s;
-        const exercises = s.exercises.map((ex, ei) => {
-          if (ei !== exIdx) return ex;
-          const sets = ex.sets.map((st, sti) => {
-            if (sti !== setIdx) return st;
-            return { ...st, ...editVals };
-          });
-          return { ...ex, sets };
-        });
-        return { ...s, exercises };
+    setLocalHistory(prev => prev.map((s, si) => {
+      if (si !== sessionIdx) return s;
+      const exercises = s.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex;
+        const sets = ex.sets.map((st, sti) => sti !== setIdx ? st : { ...st, ...editVals });
+        return { ...ex, sets };
       });
-      return updated;
-    });
+      return { ...s, exercises };
+    }));
     setEditingSet(null);
   };
 
@@ -384,14 +351,11 @@ const WorkoutHistoryView = () => {
                 {isExpanded ? <ChevronUp size={16} color="var(--color-text-muted)" /> : <ChevronDown size={16} color="var(--color-text-muted)" />}
               </div>
             </button>
-
             {isExpanded && (
               <div style={{ padding: '0 1.25rem 1rem' }}>
                 {session.exercises.map((ex, ei) => (
                   <div key={ex.exerciseId} style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--cyan)', fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '0.5rem' }}>
-                      {ex.exerciseId}
-                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--cyan)', fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: '0.5rem' }}>{ex.exerciseId}</div>
                     {ex.sets.filter(s => s.completed).map((set, sti) => {
                       const isEditing = editingSet?.sessionIdx === si && editingSet?.exIdx === ei && editingSet?.setIdx === sti;
                       return (
@@ -427,18 +391,18 @@ const WorkoutHistoryView = () => {
 
 // ── Profile Page ──────────────────────────────────────────────────────────────
 const Profile = () => {
-  const userStore       = useUserStore();
-  const workoutStore    = useWorkoutStore();
-  const nutritionStore  = useNutritionStore();
-  const gamification    = useGamificationStore();
-  const fileInputRef    = useRef<HTMLInputElement>(null);
-  const t               = useT();
+  const userStore = useUserStore();
+  const workoutStore = useWorkoutStore();
+  const nutritionStore = useNutritionStore();
+  const gamification = useGamificationStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const t = useT();
   const { lang, toggleLang } = useLanguageStore();
 
   const [newWeight, setNewWeight] = useState('');
   const [tab, setTab] = useState<'stats' | 'trophies' | 'history'>('trophies');
-  
-  // Injury State
+  const [showEditModal, setShowEditModal] = useState(false);
+
   const [injuries, setInjuries] = useState([
     { id: '1', part: 'Right Shoulder', severity: 4, status: 'Recovering' },
     { id: '2', part: 'Lower Back', severity: 2, status: 'Active' }
@@ -455,10 +419,10 @@ const Profile = () => {
 
   const handleExport = async () => {
     const data = {
-      user:        JSON.parse(localStorage.getItem('omnibody-user-storage')      || '{}').state,
-      workout:     JSON.parse(localStorage.getItem('omnibody-workout-storage')   || '{}').state,
-      nutrition:   JSON.parse(localStorage.getItem('omnibody-nutrition-storage') || '{}').state,
-      gamification:JSON.parse(localStorage.getItem('omnibody-gamification-storage') || '{}').state,
+      user: JSON.parse(localStorage.getItem('omnibody-user-storage') || '{}').state,
+      workout: JSON.parse(localStorage.getItem('omnibody-workout-storage') || '{}').state,
+      nutrition: JSON.parse(localStorage.getItem('omnibody-nutrition-storage') || '{}').state,
+      gamification: JSON.parse(localStorage.getItem('omnibody-gamification-storage') || '{}').state,
     };
     const jsonString = JSON.stringify(data, null, 2);
     const fileName = `omnibody-backup-${format(new Date(), 'yyyy-MM-dd')}.json`;
@@ -466,28 +430,15 @@ const Profile = () => {
     if (Capacitor.isNativePlatform()) {
       try {
         const { Filesystem, Directory } = await import('@capacitor/filesystem');
-        await Filesystem.writeFile({
-          path: fileName,
-          data: btoa(unescape(encodeURIComponent(jsonString))),
-          directory: Directory.Cache,
-        });
+        await Filesystem.writeFile({ path: fileName, data: btoa(unescape(encodeURIComponent(jsonString))), directory: Directory.Cache });
         const fileUri = await Filesystem.getUri({ directory: Directory.Cache, path: fileName });
-        await Share.share({
-          title: 'OmniBody Backup',
-          text: 'My OmniBody data backup',
-          url: fileUri.uri,
-          dialogTitle: 'Export Data',
-        });
-      } catch (err) {
-        console.error('Export failed', err);
-      }
+        await Share.share({ title: 'OmniBody Backup', text: 'My OmniBody data backup', url: fileUri.uri, dialogTitle: 'Export Data' });
+      } catch (err) { console.error('Export failed', err); }
     } else {
       const blob = new Blob([jsonString], { type: 'application/json' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fileName; a.click();
       URL.revokeObjectURL(url);
     }
   };
@@ -499,14 +450,12 @@ const Profile = () => {
     reader.onload = ev => {
       try {
         const data = JSON.parse(ev.target?.result as string);
-        if (data.user)         userStore.importData(data.user);
-        if (data.workout)      workoutStore.importData(data.workout);
-        if (data.nutrition)    nutritionStore.importData(data.nutrition);
+        if (data.user) userStore.importData(data.user);
+        if (data.workout) workoutStore.importData(data.workout);
+        if (data.nutrition) nutritionStore.importData(data.nutrition);
         if (data.gamification) gamification.importData(data.gamification);
         alert('Data restored successfully!');
-      } catch {
-        alert('Invalid backup file. Please try again.');
-      }
+      } catch { alert('Invalid backup file. Please try again.'); }
     };
     reader.readAsText(file);
   };
@@ -517,13 +466,13 @@ const Profile = () => {
   };
 
   const chartData = userStore.weightHistory.map(e => ({
-    date:   format(new Date(e.date), 'MMM d'),
+    date: format(new Date(e.date), 'MMM d'),
     weight: e.weight,
   }));
 
   const { profile } = userStore;
   const totalSessions = workoutStore.history.length;
-  const totalVolume   = workoutStore.history.reduce((a, s) => a + s.totalVolume, 0);
+  const totalVolume = workoutStore.history.reduce((a, s) => a + s.totalVolume, 0);
 
   const TabBtn = ({ id, label }: { id: 'stats' | 'trophies' | 'history'; label: string }) => (
     <button onClick={() => setTab(id)} style={{
@@ -538,6 +487,8 @@ const Profile = () => {
 
   return (
     <div className="page">
+      {showEditModal && <EditProfileModal onClose={() => setShowEditModal(false)} />}
+
       {/* Header */}
       <header style={{ marginBottom: '1.75rem' }}>
         <div className="section-label">{t('profile.athlete')}</div>
@@ -549,18 +500,39 @@ const Profile = () => {
       {/* Profile Card */}
       <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-          {/* Avatar circle */}
-          <div style={{
-            width: 70, height: 70, borderRadius: '50%', flexShrink: 0,
-            background: 'linear-gradient(135deg, var(--cyan), var(--magenta))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: 'var(--shadow-cyan)',
-            fontFamily: 'var(--font-display)', fontSize: '1.8rem', color: '#000',
-          }}>
-            {profile.name[0].toUpperCase()}
+          {/* Avatar — shows photo if exists */}
+          <div
+            onClick={() => setShowEditModal(true)}
+            style={{
+              width: 70, height: 70, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
+              background: profile.profilePhoto ? 'none' : 'linear-gradient(135deg, var(--cyan), var(--magenta))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: 'var(--shadow-cyan)', overflow: 'hidden', position: 'relative',
+            }}
+          >
+            {profile.profilePhoto
+              ? <img src={profile.profilePhoto} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', color: '#000' }}>{profile.name[0].toUpperCase()}</span>
+            }
+            {/* Camera overlay hint */}
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+            >
+              <Camera size={20} color="#fff" />
+            </div>
           </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', fontWeight: 700 }}>{profile.name}</div>
+
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', fontWeight: 700 }}>{profile.name}</div>
+              <button
+                onClick={() => setShowEditModal(true)}
+                style={{ color: 'var(--cyan)', fontSize: '0.7rem', padding: '0.15rem 0.5rem', border: '1px solid rgba(0,240,255,0.3)', borderRadius: 6, background: 'rgba(0,240,255,0.06)' }}
+              >
+                تعديل
+              </button>
+            </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--cyan)', marginTop: '0.15rem' }}>
               {profile.age} {t('profile.age')} · {profile.weight}{t('common.kg')} · {profile.height}cm
             </div>
@@ -574,7 +546,7 @@ const Profile = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginTop: '1.25rem' }}>
           {[
             { label: t('dash.sessions'), val: totalSessions },
-            { label: t('dash.volume'), val: `${(totalVolume/1000).toFixed(1)}T` },
+            { label: t('dash.volume'), val: `${(totalVolume / 1000).toFixed(1)}T` },
             { label: 'XP', val: gamification.xp.toLocaleString() },
           ].map(({ label, val }) => (
             <div key={label} style={{ textAlign: 'center', background: 'rgba(0,240,255,0.04)', borderRadius: 'var(--radius-md)', padding: '0.75rem' }}>
@@ -595,9 +567,10 @@ const Profile = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={16} /> {t('profile.apple_health')}</div>
             <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>قريباً</span>
           </div>
+          {/* Garmin — Real BLE */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><HeartPulse size={16} /> {t('profile.garmin')}</div>
-            <span style={{ fontSize: '0.72rem', color: 'var(--color-success)' }}>✓ Demo</span>
+            <GarminConnectButton />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShieldCheck size={16} /> {t('profile.whoop')}</div>
@@ -617,7 +590,9 @@ const Profile = () => {
 
         {showAddInjury && (
           <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, marginBottom: '1rem' }}>
-            <input type="text" placeholder={t('profile.body_part')} value={newInjury.part} onChange={e => setNewInjury({ ...newInjury, part: e.target.value })} style={{ width: '100%', marginBottom: '0.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--magenta)', color: '#fff', borderRadius: 4 }} />
+            <input type="text" placeholder={t('profile.body_part')} value={newInjury.part}
+              onChange={e => setNewInjury({ ...newInjury, part: e.target.value })}
+              style={{ width: '100%', marginBottom: '0.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--magenta)', color: '#fff', borderRadius: 4 }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{t('profile.severity')}: {newInjury.severity}/10</span>
               <input type="range" min="1" max="10" value={newInjury.severity} onChange={e => setNewInjury({ ...newInjury, severity: parseInt(e.target.value) })} style={{ flex: 1 }} />
@@ -627,21 +602,21 @@ const Profile = () => {
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {injuries.length === 0 ? (
-            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>{t('profile.no_injuries')}</div>
-          ) : (
-            injuries.map(inj => (
+          {injuries.length === 0
+            ? <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>{t('profile.no_injuries')}</div>
+            : injuries.map(inj => (
               <div key={inj.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, borderLeft: `3px solid ${inj.status === 'Active' ? 'var(--magenta)' : 'var(--color-warning)'}` }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{inj.part}</div>
                   <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{t('profile.severity')}: {inj.severity}/10</div>
                 </div>
-                <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => setInjuries(injuries.map(i => i.id === inj.id ? { ...i, status: i.status === 'Active' ? 'Recovering' : 'Active' } : i))}>
+                <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                  onClick={() => setInjuries(injuries.map(i => i.id === inj.id ? { ...i, status: i.status === 'Active' ? 'Recovering' : 'Active' } : i))}>
                   {inj.status === 'Active' ? t('profile.active') : t('profile.recovering')}
                 </button>
               </div>
             ))
-          )}
+          }
         </div>
       </div>
 
@@ -656,7 +631,6 @@ const Profile = () => {
 
       {tab === 'stats' && (
         <div>
-          {/* Weight Chart */}
           <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
             <div className="section-label">{t('profile.weight_trend')}</div>
             <div style={{ height: 200, marginBottom: '1rem' }}>
@@ -709,7 +683,7 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* Data Management (Always Visible) */}
+      {/* Data Management */}
       <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
         <div className="section-label">{t('profile.data_backup')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -727,6 +701,11 @@ const Profile = () => {
           </button>
         </div>
       </div>
+
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
     </div>
   );
 };

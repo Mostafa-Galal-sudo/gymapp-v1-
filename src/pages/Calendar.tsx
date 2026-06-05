@@ -83,10 +83,7 @@ const CalendarPage = () => {
       const hasDevice = deviceDay.length > 0;
 
       // Priority: completed > device > scheduled
-      let dotColor = 'transparent';
-      if (hasCompleted) dotColor = 'var(--cyan)';
-      else if (hasDevice) dotColor = 'var(--magenta)';
-      else if (hasScheduled) dotColor = 'var(--gold)';
+
 
       days.push(
         <div key={day} onClick={() => handleDayClick(day)}

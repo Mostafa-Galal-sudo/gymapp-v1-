@@ -30,6 +30,8 @@
   border-top: 1px solid rgba(0, 240, 255, 0.1);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.6);
+  /* fix: allow nav to shrink items to fit 6 */
+  overflow: hidden;
 }
 
 .navItem {
@@ -37,24 +39,34 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0.65rem 1rem;
+  gap: 2px;
+  /* fix: بدل 1rem → 0.25rem عشان الـ 6 items تتسع */
+  padding: 0.6rem 0.25rem;
   flex: 1;
+  min-width: 0;
+  /* مهم عشان flex items تتضغط */
   cursor: pointer;
   border: none;
   background: none;
   text-decoration: none;
   color: rgba(74, 112, 128, 0.8);
   font-family: 'Inter', sans-serif;
-  font-size: 0.65rem;
+  /* fix: صغّر الفونت شوية */
+  font-size: 0.58rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
+  /* fix: منع الـ text من الـ overflow */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.navItem:active { transform: scale(0.94); }
+.navItem:active {
+  transform: scale(0.94);
+}
 
 .navItem.active {
   color: #00F0FF;
@@ -64,7 +76,9 @@
 .navItem.active::before {
   content: '';
   position: absolute;
-  top: 0; left: 10%; right: 10%;
+  top: 0;
+  left: 10%;
+  right: 10%;
   height: 2px;
   background: linear-gradient(90deg, transparent, #00F0FF, transparent);
   border-radius: 0 0 4px 4px;
@@ -76,8 +90,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  /* fix: صغّر الـ icon container شوية */
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .navItem.active .navIcon::after {
@@ -85,5 +101,5 @@
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(0,240,255,0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, transparent 70%);
 }

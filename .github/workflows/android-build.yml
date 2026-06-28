@@ -29,12 +29,17 @@ jobs:
       - name: Install npm dependencies
         run: npm ci || npm install
 
-      - name: Build Web App & Sync Capacitor
+      - name: Build Web App
+        run: npx tsc -b && npx vite build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Copy Muscle Assets
         run: |
-          npx tsc -b && npx vite build
-          cp -r public/muscles dist/muscles
-          npx cap sync android
           cp -r public/muscles android/app/src/main/assets/public/muscles
+          echo "Muscles copied: $(ls android/app/src/main/assets/public/muscles | wc -l) files"
+          du -sh android/app/src/main/assets/public/muscles
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x ./android/gradlew

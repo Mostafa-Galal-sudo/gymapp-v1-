@@ -12,8 +12,23 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       workbox: {
-        // Raise the precache size limit so the 2 MB bundle is accepted
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        globIgnores: ['muscles/**'],
+        runtimeCaching: [
+          {
+            urlPattern: /\/muscles\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'muscles-cache',
+              expiration: {
+                maxEntries: 30,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
       },
       manifest: {
         name: 'OmniBody — Elite Training',
@@ -47,7 +62,6 @@ export default defineConfig({
   ],
 
   build: {
-    // Needed for Capacitor live-reload during development
     sourcemap: true,
   },
 });

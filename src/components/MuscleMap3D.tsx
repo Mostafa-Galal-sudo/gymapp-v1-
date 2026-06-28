@@ -17,14 +17,14 @@ export interface MuscleMap3DProps {
 
 // Preload models
 try {
-  useGLTF.preload('./muscles/body.glb');
-  MUSCLES.forEach((m) => useGLTF.preload(`./muscles/${m}.glb`));
+  useGLTF.preload('/muscles/body.glb');
+  MUSCLES.forEach((m) => useGLTF.preload(`/muscles/${m}.glb`));
 } catch (e) {
   // Ignore
 }
 
 function BodyModel() {
-  const { scene } = useGLTF('./muscles/body.glb');
+  const { scene } = useGLTF('/muscles/body.glb');
   const clone = useMemo(() => {
     const c = scene.clone();
     c.traverse((node) => {
@@ -36,7 +36,7 @@ function BodyModel() {
           mesh.material = (mesh.material as THREE.Material).clone();
         }
         const mat = mesh.material as THREE.MeshStandardMaterial;
-        mat.color.set('#d1d5db'); // gray-300
+        mat.color.set('#d1d5db');
         mat.roughness = 0.6;
       }
     });
@@ -82,12 +82,12 @@ function MuscleMesh({ name, isWorked, isSelected, isHovered, onHover, onClick }:
       if ((node as THREE.Mesh).isMesh) {
         const mat = (node as THREE.Mesh).material as THREE.MeshStandardMaterial;
         if (isSelected || isWorked) {
-          mat.color.set('#ef4444'); // red-500
+          mat.color.set('#ef4444');
           mat.transparent = false;
           mat.opacity = 1;
           mat.depthWrite = true;
         } else if (isHovered) {
-          mat.color.set('#f97316'); // orange-500
+          mat.color.set('#f97316');
           mat.transparent = false;
           mat.opacity = 1;
           mat.depthWrite = true;
@@ -184,7 +184,6 @@ export function MuscleMap3D({ workedMuscles = [], onMuscleClick }: MuscleMap3DPr
         />
       </Canvas>
 
-      {/* Tooltip */}
       {hoveredMuscle && (
         <div
           className="fixed pointer-events-none z-50 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-lg transform -translate-x-1/2 -translate-y-full transition-opacity duration-150"

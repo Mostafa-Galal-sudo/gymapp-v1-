@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Allows you to trigger it manually from the GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -30,7 +30,9 @@ jobs:
         run: npm ci || npm install
 
       - name: Build Web App & Sync Capacitor
-        run: npm run build:app
+        run: |
+          npm run build:app
+          cp -r public/muscles android/app/src/main/assets/public/muscles
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x ./android/gradlew

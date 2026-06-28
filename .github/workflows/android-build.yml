@@ -31,7 +31,9 @@ jobs:
 
       - name: Build Web App & Sync Capacitor
         run: |
-          npm run build:app
+          tsc -b && vite build
+          cp -r public/muscles dist/muscles
+          npx cap sync android
           cp -r public/muscles android/app/src/main/assets/public/muscles
 
       - name: Make Gradle Wrapper Executable

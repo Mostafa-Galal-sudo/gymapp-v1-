@@ -12,23 +12,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       workbox: {
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        globIgnores: ['muscles/**'],
-        runtimeCaching: [
-          {
-            urlPattern: /\/muscles\//,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'muscles-cache',
-              expiration: {
-                maxEntries: 30,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-        ],
+        maximumFileSizeToCacheInBytes: 60 * 1024 * 1024,
       },
       manifest: {
         name: 'OmniBody — Elite Training',

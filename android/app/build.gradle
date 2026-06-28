@@ -12,8 +12,10 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
-            noCompress "glb", "gltf", "bin"
         }
+    }
+    aaptOptions {
+        noCompress "glb", "gltf", "bin"
     }
     signingConfigs {
         release {

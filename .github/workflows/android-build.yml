@@ -31,7 +31,7 @@ jobs:
 
       - name: Build Web App & Sync Capacitor
         run: |
-          tsc -b && vite build
+          npx tsc -b && npx vite build
           cp -r public/muscles dist/muscles
           npx cap sync android
           cp -r public/muscles android/app/src/main/assets/public/muscles

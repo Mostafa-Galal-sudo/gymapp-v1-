@@ -1,0 +1,3498 @@
+diff --git a/server.ts b/server.ts
+new file mode 100644
+index 0000000..46f7e7b
+--- /dev/null
++++ b/server.ts
+@@ -0,0 +1,183 @@
++import express from "express";
++import path from "path";
++import { createServer as createViteServer } from "vite";
++import { GoogleGenAI, Type } from "@google/genai";
++import dotenv from "dotenv";
++
++dotenv.config();
++
++const app = express();
++const PORT = 3000;
++
++app.use(express.json({ limit: '10mb' }));
++
++// Initialize Gemini SDK lazily to prevent crashing on startup if key is missing
++let aiClient: GoogleGenAI | null = null;
++function getAI(): GoogleGenAI {
++  const apiKey = process.env.GEMINI_API_KEY;
++  if (!apiKey) {
++    throw new Error("GEMINI_API_KEY is not defined. Please configure it in Settings > Secrets.");
++  }
++  if (!aiClient) {
++    aiClient = new GoogleGenAI({
++      apiKey,
++      httpOptions: {
++        headers: {
++          'User-Agent': 'aistudio-build',
++        }
++      }
++    });
++  }
++  return aiClient;
++}
++
++// Expose API Endpoints first
++app.post("/api/ai/coach", async (req, res) => {
++  try {
++    const { prompt, context } = req.body;
++    const systemInstruction = `You are OmniBody AI Coach, an expert fitness trainer, biomechanical coach, and nutrition specialist. 
++Provide highly tailored, positive, actionable, science-based fitness and health advice, incorporating the user's specific goals, level, and logged injuries if provided. 
++Keep responses concise, formatted cleanly in Markdown, and easy to read. Respond in the language used in the prompt or context (support both English and Arabic).`;
++
++    const response = await getAI().models.generateContent({
++      model: "gemini-2.0-flash",
++      contents: [
++        { text: `User Profile & Context: ${JSON.stringify(context || {})}` },
++        { text: prompt }
++      ],
++      config: {
++        systemInstruction,
++      }
++    });
++
++    res.json({ response: response.text });
++  } catch (err: any) {
++    console.error("AI Coach Error:", err);
++    res.status(500).json({ error: err.message || "Failed to call Gemini API" });
++  }
++});
++
++app.post("/api/ai/nutrition", async (req, res) => {
++  try {
++    const { imageBase64, mimeType } = req.body;
++    if (!imageBase64) {
++      return res.status(400).json({ error: "Missing imageBase64" });
++    }
++
++    const imagePart = {
++      inlineData: {
++        mimeType: mimeType || "image/jpeg",
++        data: imageBase64,
++      },
++    };
++
++    const textPart = {
++      text: "Analyze this food image. Provide nutritional estimates and a breakdown of nutrients.",
++    };
++
++    const response = await getAI().models.generateContent({
++      model: "gemini-2.0-flash",
++      contents: { parts: [imagePart, textPart] },
++      config: {
++        responseMimeType: "application/json",
++        responseSchema: {
++          type: Type.OBJECT,
++          properties: {
++            name: { type: Type.STRING, description: "English name of the food scanned" },
++            nameAr: { type: Type.STRING, description: "Arabic name of the food scanned" },
++            category: { type: Type.STRING, description: "Category (e.g., Protein, Dairy, Supermarket, Fruit, Cooked)" },
++            calories: { type: Type.NUMBER, description: "Calories per 100g or per serving" },
++            protein: { type: Type.NUMBER, description: "Protein in grams" },
++            carbs: { type: Type.NUMBER, description: "Carbohydrates in grams" },
++            fats: { type: Type.NUMBER, description: "Fats in grams" },
++            fiber: { type: Type.NUMBER, description: "Fiber in grams" },
++            sodium: { type: Type.NUMBER, description: "Sodium in milligrams" },
++            potassium: { type: Type.NUMBER, description: "Potassium in milligrams" },
++            servingSize: { type: Type.NUMBER, description: "Serving size in grams or mL" },
++            servingUnit: { type: Type.STRING, description: "Serving unit, usually 'g'" },
++            analysis: { type: Type.STRING, description: "A short 1-2 sentence nutritional analysis/coach comment about this food" }
++          },
++          required: ["name", "nameAr", "category", "calories", "protein", "carbs", "fats", "servingSize", "servingUnit", "analysis"]
++        },
++      },
++    });
++
++    res.json(JSON.parse(response.text || "{}"));
++  } catch (err: any) {
++    console.error("AI Nutrition Error:", err);
++    res.status(500).json({ error: err.message || "Failed to analyze food image" });
++  }
++});
++
++app.post("/api/ai/workout-analysis", async (req, res) => {
++  try {
++    const { workoutDetails, context } = req.body;
++    const systemInstruction = `You are OmniBody Workout Analyst. You analyze a finished workout session and provide biomechanical feedback, performance insights, sets/reps breakdown, and fatigue-management recommendations. Formulate your comments as brief, professional bullet points in clean Markdown. Translate response into user's preferred language (English or Arabic).`;
++
++    const response = await getAI().models.generateContent({
++      model: "gemini-2.0-flash",
++      contents: [
++        { text: `User Profile: ${JSON.stringify(context || {})}` },
++        { text: `Workout Session Details to analyze: ${JSON.stringify(workoutDetails || {})}` }
++      ],
++      config: {
++        systemInstruction,
++      }
++    });
++
++    res.json({ analysis: response.text });
++  } catch (err: any) {
++    console.error("Workout Analysis Error:", err);
++    res.status(500).json({ error: err.message || "Failed to analyze workout" });
++  }
++});
++
++app.post("/api/ai/daily-plan", async (req, res) => {
++  try {
++    const { userProfile, historyLogs, dayClicked } = req.body;
++    const systemInstruction = `You are OmniBody Smart Planner. Generate a single customized daily plan for the day: ${dayClicked || "today"}. 
++Provide:
++1. Targeted exercises with sets/reps (considering active injuries to avoid straining them).
++2. Recommended meal guidelines to meet macro/micro goals.
++Formulate the response in clean, concise Markdown, utilizing sections, and support both English and Arabic.`;
++
++    const response = await getAI().models.generateContent({
++      model: "gemini-2.0-flash",
++      contents: [
++        { text: `User Profile: ${JSON.stringify(userProfile || {})}` },
++        { text: `Recent Logs & History: ${JSON.stringify(historyLogs || [])}` }
++      ],
++      config: {
++        systemInstruction,
++      }
++    });
++
++    res.json({ plan: response.text });
++  } catch (err: any) {
++    console.error("Daily Plan Error:", err);
++    res.status(500).json({ error: err.message || "Failed to generate plan" });
++  }
++});
++
++// Vite middleware for dev vs prod
++async function setupVite() {
++  if (process.env.NODE_ENV !== "production") {
++    const vite = await createViteServer({
++      server: { middlewareMode: true },
++      appType: "spa",
++    });
++    app.use(vite.middlewares);
++  } else {
++    const distPath = path.join(process.cwd(), 'dist');
++    app.use(express.static(distPath));
++    app.get('*', (req, res) => {
++      res.sendFile(path.join(distPath, 'index.html'));
++    });
++  }
++
++  app.listen(PORT, "0.0.0.0", () => {
++    console.log(`Server running on port ${PORT}`);
++  });
++}
++
++setupVite();
+diff --git a/src/App.tsx b/src/App.tsx
+index 9f6050d..be0b62b 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -54,12 +54,20 @@ function AppRouter() {
+ function App() {
+   const lang = useLanguageStore(s => s.lang);
+   const isAuthenticated = useUserStore(s => s.isAuthenticated);
++  const loadUser = useUserStore(s => s.loadUser);
+ 
+   useEffect(() => {
+     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+     document.documentElement.lang = lang;
+   }, [lang]);
+ 
++  useEffect(() => {
++    const storedId = localStorage.getItem('omni_active_user');
++    if (storedId) {
++      loadUser(storedId);
++    }
++  }, [loadUser]);
++
+   return (
+     <MigrationGate>
+       {!isAuthenticated ? (
+diff --git a/src/assets/hero.png b/src/assets/hero.png
+index 02251f4..d3ce769 100644
+Binary files a/src/assets/hero.png and b/src/assets/hero.png differ
+diff --git a/src/data/foods.ts b/src/data/foods.ts
+index 6506ee7..93eca55 100644
+--- a/src/data/foods.ts
++++ b/src/data/foods.ts
+@@ -22,6 +22,7 @@ export interface Food {
+   vitaminC?: number;  // mg
+   vitaminD?: number;  // IU
+   vitaminB12?: number; // mcg
++  barcode?: string;    // EAN-13 or UPC barcode
+ }
+ 
+ export const STATIC_FOOD_DATABASE: Food[] = [
+@@ -2169,11 +2170,59 @@ function generateDynamicIngredients(): Food[] {
+ const DYNAMIC_FOODS_LIST = generateDynamicFoods();
+ const DYNAMIC_INGREDIENTS_LIST = generateDynamicIngredients();
+ 
+-// Export the absolutely massive database (Exceeds 2000 total verified unique items)
++
++// ==========================================
++// NEW EXPANDED FOODS (35 items, Phase 2)
++// ==========================================
++const NEW_FOODS: Food[] = [
++  // --- International ---
++  { id: 'int_avocado_toast', name: 'Avocado Toast', nameAr: 'توست أفوكادو', category: 'International', calories: 290, protein: 8, carbs: 28, fats: 18, servingSize: 200, servingUnit: 'g', fiber: 7, sodium: 310, potassium: 580, iron: 2.1, calcium: 60, vitaminC: 12, vitaminA: 90, barcode: '0000000000101' },
++  { id: 'int_chicken_caesar', name: 'Chicken Caesar Salad', nameAr: 'سلطة سيزر بالدجاج', category: 'International', calories: 380, protein: 32, carbs: 14, fats: 22, servingSize: 300, servingUnit: 'g', fiber: 3, sodium: 780, potassium: 510, iron: 2.5, calcium: 180, vitaminA: 350, vitaminC: 18 },
++  { id: 'int_greek_yogurt_parfait', name: 'Greek Yogurt Parfait', nameAr: 'بارفيه زبادي يوناني', category: 'International', calories: 260, protein: 18, carbs: 35, fats: 5, servingSize: 250, servingUnit: 'g', fiber: 3, sodium: 90, potassium: 420, calcium: 220, vitaminB12: 1.2 },
++  { id: 'int_salmon_sushi', name: 'Salmon Sushi Roll (8 pcs)', nameAr: 'سوشي سلمون', category: 'International', calories: 320, protein: 18, carbs: 48, fats: 8, servingSize: 240, servingUnit: 'g', fiber: 2, sodium: 640, potassium: 320, iron: 1.8, calcium: 40, vitaminD: 180, vitaminB12: 3.2 },
++  { id: 'int_beef_burger', name: 'Beef Burger (No Bun)', nameAr: 'برجر لحم بقري بدون خبز', category: 'International', calories: 295, protein: 28, carbs: 2, fats: 20, servingSize: 150, servingUnit: 'g', fiber: 0, sodium: 380, potassium: 420, iron: 3.2, calcium: 18, vitaminB12: 2.8 },
++  { id: 'int_pasta_bolognese', name: 'Pasta Bolognese', nameAr: 'باستا بولونيز', category: 'International', calories: 510, protein: 24, carbs: 68, fats: 14, servingSize: 350, servingUnit: 'g', fiber: 4, sodium: 490, potassium: 600, iron: 3.5, calcium: 55, vitaminA: 280, vitaminC: 8 },
++  { id: 'int_thai_green_curry', name: 'Thai Green Curry with Rice', nameAr: 'كاري تايلاندي أخضر مع أرز', category: 'International', calories: 490, protein: 22, carbs: 60, fats: 18, servingSize: 400, servingUnit: 'g', fiber: 5, sodium: 720, potassium: 540, iron: 3.8, calcium: 80, vitaminC: 30, vitaminA: 420 },
++  { id: 'int_oatmeal_berries', name: 'Oatmeal with Mixed Berries', nameAr: 'الشوفان مع التوت المشكل', category: 'International', calories: 310, protein: 10, carbs: 54, fats: 6, servingSize: 300, servingUnit: 'g', fiber: 8, sugar: 14, sodium: 120, potassium: 380, iron: 2.8, calcium: 90, vitaminC: 18, barcode: '0000000000102' },
++  { id: 'int_steak_asparagus', name: 'Grilled Steak with Asparagus', nameAr: 'ستيك مشوي مع الهليون', category: 'International', calories: 420, protein: 45, carbs: 8, fats: 22, servingSize: 300, servingUnit: 'g', fiber: 3, sodium: 350, potassium: 780, iron: 5.2, calcium: 45, vitaminB12: 4.5, vitaminC: 14 },
++
++  // --- Local / Middle Eastern ---
++  { id: 'loc_shawarma_wrap', name: 'Chicken Shawarma Wrap', nameAr: 'ساندوتش شاورما دجاج', category: 'Local', calories: 480, protein: 30, carbs: 50, fats: 16, servingSize: 280, servingUnit: 'g', fiber: 4, sodium: 820, potassium: 490, iron: 3.1, calcium: 70, vitaminA: 180, vitaminC: 6 },
++  { id: 'loc_falafel_wrap', name: 'Falafel Wrap', nameAr: 'ساندوتش فلافل', category: 'Local', calories: 410, protein: 16, carbs: 55, fats: 15, servingSize: 260, servingUnit: 'g', fiber: 8, sodium: 680, potassium: 540, iron: 4.2, calcium: 85, vitaminC: 8 },
++  { id: 'loc_mahshi_kousa', name: 'Stuffed Zucchini (Mahshi Kousa)', nameAr: 'محشي كوسا', category: 'Local', calories: 340, protein: 15, carbs: 42, fats: 12, servingSize: 300, servingUnit: 'g', fiber: 6, sodium: 560, potassium: 680, iron: 2.9, calcium: 60, vitaminA: 320, vitaminC: 22 },
++  { id: 'loc_feteer_meshaltet', name: 'Feteer Meshaltet (Egyptian Pastry)', nameAr: 'فطير مشلتت', category: 'Local', calories: 520, protein: 10, carbs: 65, fats: 24, servingSize: 200, servingUnit: 'g', fiber: 2, sugar: 4, sodium: 420, potassium: 120, calcium: 40 },
++  { id: 'loc_hawawshi', name: 'Hawawshi (Egyptian Meat Pastry)', nameAr: 'حواوشي', category: 'Local', calories: 580, protein: 28, carbs: 48, fats: 28, servingSize: 260, servingUnit: 'g', fiber: 3, sodium: 780, potassium: 380, iron: 3.8, calcium: 45 },
++  { id: 'loc_om_ali', name: 'Om Ali (Egyptian Bread Pudding)', nameAr: 'أم علي', category: 'Local', calories: 450, protein: 10, carbs: 58, fats: 20, servingSize: 250, servingUnit: 'g', fiber: 2, sugar: 28, sodium: 180, potassium: 280, calcium: 140, vitaminD: 40 },
++  { id: 'loc_mulukhiyah_chicken', name: 'Mulukhiyah with Chicken', nameAr: 'ملوخية بالدجاج', category: 'Local', calories: 320, protein: 28, carbs: 18, fats: 14, servingSize: 350, servingUnit: 'g', fiber: 5, sodium: 520, potassium: 680, iron: 4.5, calcium: 120, vitaminA: 680, vitaminC: 28, vitaminK: 600 } as any,
++  { id: 'loc_semit', name: 'Egyptian Sesame Bread Ring (Semit)', nameAr: 'سميط', category: 'Local', calories: 280, protein: 9, carbs: 50, fats: 6, servingSize: 120, servingUnit: 'g', fiber: 3, sodium: 280, potassium: 180, iron: 2.8, calcium: 120 },
++  { id: 'loc_ful_with_egg', name: 'Ful Medames with Egg', nameAr: 'فول بالبيض', category: 'Local', calories: 390, protein: 22, carbs: 42, fats: 14, servingSize: 300, servingUnit: 'g', fiber: 12, sodium: 460, potassium: 780, iron: 5.8, calcium: 90, vitaminC: 10 },
++
++  // --- Raw Ingredients ---
++  { id: 'raw_quinoa_cooked', name: 'Cooked Quinoa', nameAr: 'كينوا مطبوخة', category: 'Raw', calories: 120, protein: 4.4, carbs: 21, fats: 1.9, servingSize: 100, servingUnit: 'g', fiber: 2.8, sodium: 7, potassium: 172, iron: 1.5, calcium: 17, barcode: '0000000000201' },
++  { id: 'raw_edamame', name: 'Edamame (Shelled)', nameAr: 'إيدامامي', category: 'Raw', calories: 121, protein: 11, carbs: 9, fats: 5.2, servingSize: 100, servingUnit: 'g', fiber: 5.2, sodium: 6, potassium: 436, iron: 2.3, calcium: 63, vitaminC: 6.1, vitaminK: 26 } as any,
++  { id: 'raw_sweet_potato', name: 'Sweet Potato', nameAr: 'بطاطا حلوة', category: 'Raw', calories: 86, protein: 1.6, carbs: 20, fats: 0.1, servingSize: 100, servingUnit: 'g', fiber: 3, sugar: 4.2, sodium: 55, potassium: 337, iron: 0.6, calcium: 30, vitaminA: 709, vitaminC: 19.6, barcode: '0000000000202' },
++  { id: 'raw_blueberries', name: 'Blueberries', nameAr: 'توت أزرق', category: 'Raw', calories: 57, protein: 0.7, carbs: 14, fats: 0.3, servingSize: 100, servingUnit: 'g', fiber: 2.4, sugar: 10, sodium: 1, potassium: 77, calcium: 6, vitaminC: 9.7, vitaminK: 19 } as any,
++  { id: 'raw_kale', name: 'Kale (Raw)', nameAr: 'كيل', category: 'Raw', calories: 35, protein: 2.9, carbs: 4.4, fats: 0.5, servingSize: 100, servingUnit: 'g', fiber: 4.1, sodium: 38, potassium: 348, iron: 1.5, calcium: 254, vitaminA: 769, vitaminC: 93, vitaminK: 817 } as any,
++  { id: 'raw_tempeh', name: 'Tempeh', nameAr: 'تمبيه', category: 'Raw', calories: 193, protein: 19, carbs: 9, fats: 11, servingSize: 100, servingUnit: 'g', fiber: 0, sodium: 9, potassium: 401, iron: 2.7, calcium: 111, vitaminB12: 0 },
++  { id: 'raw_chia_seeds', name: 'Chia Seeds', nameAr: 'بذور الشيا', category: 'Raw', calories: 486, protein: 17, carbs: 42, fats: 31, servingSize: 30, servingUnit: 'g', fiber: 10, sodium: 16, potassium: 407, iron: 2.4, calcium: 177, vitaminC: 1.6, barcode: '0000000000203' },
++  { id: 'raw_lentils_cooked', name: 'Red Lentils (Cooked)', nameAr: 'عدس أحمر مطبوخ', category: 'Raw', calories: 116, protein: 9, carbs: 20, fats: 0.4, servingSize: 100, servingUnit: 'g', fiber: 7.9, sodium: 2, potassium: 369, iron: 3.3, calcium: 19, vitaminC: 1.5 },
++
++  // --- Supplements ---
++  { id: 'supp_whey_isolate', name: 'Whey Protein Isolate Shake', nameAr: 'بروتين واي آيزوليت', category: 'Supplement', calories: 115, protein: 25, carbs: 1, fats: 0.5, servingSize: 30, servingUnit: 'g', sodium: 60, calcium: 110, vitaminD: 0, vitaminB12: 0.8, barcode: '0000000000301' },
++  { id: 'supp_casein_shake', name: 'Casein Protein Shake', nameAr: 'بروتين كازين', category: 'Supplement', calories: 120, protein: 24, carbs: 3, fats: 1, servingSize: 33, servingUnit: 'g', sodium: 140, calcium: 330, vitaminD: 10 },
++  { id: 'supp_mass_gainer', name: 'Mass Gainer Shake (2 scoops)', nameAr: 'مكمل زيادة الكتلة', category: 'Supplement', calories: 650, protein: 35, carbs: 110, fats: 8, servingSize: 180, servingUnit: 'g', sodium: 280, potassium: 520, calcium: 400, vitaminD: 200, vitaminB12: 2.4, barcode: '0000000000302' },
++  { id: 'supp_bcaa_drink', name: 'BCAA Drink (2 scoops)', nameAr: 'مشروب أحماض أمينية BCAA', category: 'Supplement', calories: 25, protein: 5, carbs: 1, fats: 0, servingSize: 14, servingUnit: 'g', sodium: 20, potassium: 15 },
++  { id: 'supp_pre_workout', name: 'Pre-Workout Powder (1 scoop)', nameAr: 'مكمل ما قبل التمرين', category: 'Supplement', calories: 30, protein: 0, carbs: 6, fats: 0, servingSize: 10, servingUnit: 'g', sodium: 180, potassium: 200 },
++  { id: 'supp_fish_oil', name: 'Fish Oil (2 softgels)', nameAr: 'زيت السمك', category: 'Supplement', calories: 20, protein: 0, carbs: 0, fats: 2, servingSize: 2, servingUnit: 'caps', sodium: 0, vitaminD: 40 },
++  { id: 'supp_vitamin_d3', name: 'Vitamin D3 (5000 IU)', nameAr: 'فيتامين د3', category: 'Supplement', calories: 5, protein: 0, carbs: 0, fats: 0.5, servingSize: 1, servingUnit: 'cap', sodium: 0, vitaminD: 5000 },
++  { id: 'supp_zinc_magnesium', name: 'Zinc & Magnesium (ZMA)', nameAr: 'زنك وماغنيسيوم ZMA', category: 'Supplement', calories: 5, protein: 0, carbs: 0, fats: 0, servingSize: 3, servingUnit: 'caps', sodium: 0, calcium: 30 },
++];
++
+ export const FOOD_DATABASE: Food[] = [
+   ...STATIC_FOOD_DATABASE,
+   ...DYNAMIC_FOODS_LIST,
+-  ...DYNAMIC_INGREDIENTS_LIST
++  ...DYNAMIC_INGREDIENTS_LIST,
++  ...NEW_FOODS,
+ ];
+ 
+ // Simple verification console message to confirm requirements are perfectly met
+diff --git a/src/db/db.ts b/src/db/db.ts
+index 0efdcb7..e24df83 100644
+--- a/src/db/db.ts
++++ b/src/db/db.ts
+@@ -39,6 +39,22 @@ export interface DailyLogEntity {
+   supplementsTaken: Record<string, boolean[]>; // supplementId -> boolean array of taken doses
+ }
+ 
++export interface CustomFood {
++  id: string;
++  name: string;
++  nameAr: string;
++  category: string;
++  calories: number;
++  protein: number;
++  carbs: number;
++  fats: number;
++  fiber?: number;
++  sodium?: number;
++  potassium?: number;
++  servingSize?: number;
++  servingUnit?: string;
++}
++
+ // Extend WorkoutSession and CustomExercise to include userId for the DB layer
+ export type DBWorkoutSession = WorkoutSession & { userId: string };
+ export type DBCustomExercise = CustomExercise & { userId: string };
+@@ -49,6 +65,7 @@ const db = new Dexie('OmnibodyDB_V2') as Dexie & {
+   workouts: EntityTable<DBWorkoutSession, 'sessionId'>;
+   custom_exercises: EntityTable<DBCustomExercise, 'id'>;
+   injuries: EntityTable<InjuryEntry, 'id'>;
++  custom_foods: EntityTable<CustomFood, 'id'>;
+ };
+ 
+ // Schema version 2 (V2)
+@@ -60,4 +77,14 @@ db.version(2).stores({
+   injuries: 'id, userId, bodyPart, status'
+ });
+ 
++// Schema version 3 (V3)
++db.version(3).stores({
++  users: 'id',
++  daily_logs: 'id, userId, date, [userId+date]', 
++  workouts: 'sessionId, userId, date, type, phase',
++  custom_exercises: 'id, userId, name, category, muscleGroup',
++  injuries: 'id, userId, bodyPart, status',
++  custom_foods: 'id, name, category'
++});
++
+ export default db;
+diff --git a/src/i18n/translations.ts b/src/i18n/translations.ts
+index 41bc844..c48fb4a 100644
+--- a/src/i18n/translations.ts
++++ b/src/i18n/translations.ts
+@@ -37,6 +37,7 @@ export const translations = {
+     'common.items':     'items',
+     'common.kcal':      'kcal',
+     'common.kg':        'kg',
++    'common.today':     'Today',
+ 
+     // ── Auth ─────────────────────────────────────────────────────
+     'auth.welcome':        'Welcome',
+@@ -171,6 +172,8 @@ export const translations = {
+     'nutrition.cat_international':'International',
+     'nutrition.cat_raw':          'Raw',
+     'nutrition.cat_supplement':   'Supplement',
++    'nutrition.scan_barcode':     'Scan Barcode',
++    'nutrition.stop_scan':        'Stop Scan',
+ 
+     // ── Profile ──────────────────────────────────────────────────
+     'profile.title':         'PROFILE',
+@@ -219,6 +222,21 @@ export const translations = {
+     'profile.recovering':    'Recovering',
+     'profile.active':        'Active',
+     'profile.history':       'Workout Log',
++    'profile.bmi_calculator':'BMI & Nutrition Targets',
++    'profile.bmi':           'BMI',
++    'profile.underweight':   'Underweight',
++    'profile.normal':        'Normal',
++    'profile.overweight':    'Overweight',
++    'profile.obese':         'Obese',
++    'profile.macro_targets': 'Macro Targets',
++    'profile.micro_targets': 'Micro & Mineral Targets',
++    'profile.sync_health':   'Sync Health Data',
++    'profile.syncing':       'Syncing...',
++    'profile.last_sync':     'Last sync',
++    'profile.change_photo':  'Change Photo',
++    'profile.gender':        'Gender',
++    'profile.male':          'Male',
++    'profile.female':        'Female',
+ 
+     // ── Muscle Map ───────────────────────────────────────────────
+     'muscle.title':          'MUSCLE MAP',
+@@ -295,6 +313,7 @@ export const translations = {
+     'common.items':     'عناصر',
+     'common.kcal':      'سعر',
+     'common.kg':        'كجم',
++    'common.today':     'اليوم',
+ 
+     // ── Auth ─────────────────────────────────────────────────────
+     'auth.welcome':        'أهلاً بك',
+@@ -429,6 +448,8 @@ export const translations = {
+     'nutrition.cat_international':'عالمي',
+     'nutrition.cat_raw':          'خام',
+     'nutrition.cat_supplement':   'مكمل',
++    'nutrition.scan_barcode':     'مسح الباركود',
++    'nutrition.stop_scan':        'إيقاف المسح',
+ 
+     // ── Profile ──────────────────────────────────────────────────
+     'profile.title':         'الملف الشخصي',
+@@ -477,6 +498,21 @@ export const translations = {
+     'profile.recovering':    'يتعافى',
+     'profile.active':        'نشط',
+     'profile.history':       'سجل التمارين',
++    'profile.bmi_calculator':'حاسبة مؤشر كتلة الجسم وأهداف التغذية',
++    'profile.bmi':           'مؤشر كتلة الجسم',
++    'profile.underweight':   'نقص الوزن',
++    'profile.normal':        'طبيعي',
++    'profile.overweight':    'زيادة الوزن',
++    'profile.obese':         'سمنة',
++    'profile.macro_targets': 'أهداف المغذيات الكبرى',
++    'profile.micro_targets': 'أهداف الفيتامينات والمعادن',
++    'profile.sync_health':   'مزامنة البيانات',
++    'profile.syncing':       'جاري المزامنة...',
++    'profile.last_sync':     'آخر مزامنة',
++    'profile.change_photo':  'تغيير الصورة',
++    'profile.gender':        'الجنس',
++    'profile.male':          'ذكر',
++    'profile.female':        'أنثى',
+ 
+     // ── Muscle Map ───────────────────────────────────────────────
+     'muscle.title':          'خريطة العضلات',
+diff --git a/src/index.css b/src/index.css
+index 139e9bd..3c96a05 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -660,3 +660,179 @@ input[type=range]:focus { box-shadow: none; }
+   0%   { background-position: -200% center; }
+   100% { background-position:  200% center; }
+ }
++
++/* ── Exercise Slide Transition Animations ─────────────────────────── */
++@keyframes slideInFromRight {
++  from { opacity: 0; transform: translateX(60px) scale(0.96); }
++  to   { opacity: 1; transform: translateX(0) scale(1); }
++}
++@keyframes slideOutToLeft {
++  from { opacity: 1; transform: translateX(0) scale(1); }
++  to   { opacity: 0; transform: translateX(-60px) scale(0.96); }
++}
++@keyframes slideInFromLeft {
++  from { opacity: 0; transform: translateX(-60px) scale(0.96); }
++  to   { opacity: 1; transform: translateX(0) scale(1); }
++}
++@keyframes slideOutToRight {
++  from { opacity: 1; transform: translateX(0) scale(1); }
++  to   { opacity: 0; transform: translateX(60px) scale(0.96); }
++}
++.exercise-slide-in-right {
++  animation: slideInFromRight 0.32s var(--ease-out) both;
++  box-shadow: 0 0 30px rgba(0,240,255,0.18), 0 0 0 1px rgba(0,240,255,0.2);
++}
++.exercise-slide-in-left {
++  animation: slideInFromLeft 0.32s var(--ease-out) both;
++  box-shadow: 0 0 30px rgba(0,240,255,0.18), 0 0 0 1px rgba(0,240,255,0.2);
++}
++
++/* ── Circular Macro Ring ──────────────────────────────────────────── */
++.macro-ring-wrap {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: 0.3rem;
++}
++.macro-ring-label {
++  font-size: 0.6rem;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  color: var(--color-text-muted);
++  font-family: var(--font-heading);
++}
++
++/* ── Custom Food Badge ────────────────────────────────────────────── */
++.custom-food-badge {
++  display: inline-flex;
++  align-items: center;
++  font-size: 0.58rem;
++  font-weight: 700;
++  letter-spacing: 0.1em;
++  text-transform: uppercase;
++  color: var(--magenta);
++  background: rgba(255,0,110,0.1);
++  border: 1px solid rgba(255,0,110,0.3);
++  border-radius: var(--radius-full);
++  padding: 1px 6px;
++  margin-inline-start: 6px;
++}
++
++/* ── Water Ring Progress ──────────────────────────────────────────── */
++.water-ring-container {
++  position: relative;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++}
++.water-ring-container svg { transform: rotate(-90deg); }
++.water-ring-center {
++  position: absolute;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++}
++
++/* ── Date Nav Bar ─────────────────────────────────────────────────── */
++.date-nav-bar {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  background: var(--bg-card);
++  border: 1px solid rgba(0,240,255,0.12);
++  border-radius: var(--radius-lg);
++  padding: 0.6rem 1rem;
++  margin-bottom: 1rem;
++}
++.date-nav-btn {
++  width: 32px; height: 32px;
++  border-radius: 50%;
++  background: rgba(0,240,255,0.08);
++  border: 1px solid rgba(0,240,255,0.2);
++  color: var(--cyan);
++  display: flex; align-items: center; justify-content: center;
++  cursor: pointer;
++  transition: var(--transition);
++}
++.date-nav-btn:hover {
++  background: rgba(0,240,255,0.18);
++  box-shadow: 0 0 12px rgba(0,240,255,0.3);
++}
++
++/* ── Tab Bar ──────────────────────────────────────────────────────── */
++.tab-bar {
++  display: flex;
++  border-bottom: 1px solid rgba(0,240,255,0.1);
++  margin-bottom: 1rem;
++  overflow-x: auto;
++  scrollbar-width: none;
++}
++.tab-bar::-webkit-scrollbar { display: none; }
++.tab-btn {
++  flex: 1;
++  min-width: 70px;
++  padding: 0.65rem 0.5rem;
++  font-family: var(--font-heading);
++  font-weight: 700;
++  font-size: 0.8rem;
++  letter-spacing: 0.06em;
++  text-transform: uppercase;
++  background: transparent;
++  color: var(--color-text-muted);
++  border-bottom: 2px solid transparent;
++  transition: all 0.2s;
++  white-space: nowrap;
++}
++.tab-btn.active {
++  color: var(--cyan);
++  border-bottom-color: var(--cyan);
++  background: rgba(0,240,255,0.06);
++}
++
++/* ── Exercise slide animations (workout player) ────────────────────────────── */
++@keyframes slideInLeft {
++  from { opacity: 0; transform: translateX(40px); }
++  to   { opacity: 1; transform: translateX(0); }
++}
++@keyframes slideInRight {
++  from { opacity: 0; transform: translateX(-40px); }
++  to   { opacity: 1; transform: translateX(0); }
++}
++.exercise-slide-in-left  { animation: slideInLeft  0.28s var(--ease-out) both; }
++.exercise-slide-in-right { animation: slideInRight 0.28s var(--ease-out) both; }
++
++/* ── Water / Macro ring ────────────────────────────────────────────────────── */
++.water-ring-container {
++  position: relative;
++  flex-shrink: 0;
++}
++.water-ring-container svg {
++  display: block;
++  transform: rotate(-90deg);
++}
++.water-ring-center {
++  position: absolute;
++  inset: 0;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  justify-content: center;
++  gap: 1px;
++  pointer-events: none;
++}
++
++/* ── Macro ring wrap ───────────────────────────────────────────────────────── */
++.macro-ring-wrap {
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++  gap: 0.35rem;
++}
++.macro-ring-label {
++  font-size: 0.6rem;
++  text-transform: uppercase;
++  letter-spacing: 0.1em;
++  color: var(--color-text-muted);
++  font-weight: 600;
++}
+diff --git a/src/pages/Auth.tsx b/src/pages/Auth.tsx
+index 805cb94..4ecea59 100644
+--- a/src/pages/Auth.tsx
++++ b/src/pages/Auth.tsx
+@@ -5,7 +5,6 @@ import { useNutritionStore } from '../store/useNutritionStore';
+ import { useGamificationStore } from '../store/useGamificationStore';
+ import { useExerciseStore } from '../store/useExerciseStore';
+ import db from '../db/db';
+-import { User, Plus } from 'lucide-react';
+ import { useT } from '../hooks/useT';
+ 
+ export const Auth = () => {
+@@ -17,37 +16,40 @@ export const Auth = () => {
+   const loadUserGamification = useGamificationStore((s) => s.loadUserGamification);
+   const loadUserExercises = useExerciseStore((s) => s.loadUserExercises);
+ 
+-  const [users, setUsers] = useState<any[]>([]);
+-  const [showNew, setShowNew] = useState(false);
+-  const [newName, setNewName] = useState('');
++  const [name, setName] = useState('');
++  const [loading, setLoading] = useState(true);
+ 
+   useEffect(() => {
+-    const fetchUsers = async () => {
+-      const allUsers = await db.users.toArray();
+-      setUsers(allUsers);
++    const checkExistingUser = async () => {
++      const user = await db.users.get('default_user');
++      if (user && user.profile) {
++        setName(user.profile.name || '');
++      }
++      setLoading(false);
+     };
+-    fetchUsers();
++    checkExistingUser();
+   }, []);
+ 
+-  const handleSelectProfile = async (userId: string) => {
+-    await loadUser(userId);
+-    await loadUserWorkouts(userId);
+-    await loadUserHistory(userId);
+-    await loadUserGamification(userId);
+-    await loadUserExercises(userId);
+-  };
+-
+-  const handleCreateProfile = async (e: React.FormEvent) => {
++  const handleLogin = async (e: React.FormEvent) => {
+     e.preventDefault();
+-    if (!newName.trim()) return;
+-    const newId = 'user_' + Date.now();
+-    await createUser(newId, newName.trim());
+-    await loadUserWorkouts(newId);
+-    await loadUserHistory(newId);
+-    await loadUserGamification(newId);
+-    await loadUserExercises(newId);
++    if (!name.trim()) return;
++
++    // Load or create the default user
++    await createUser('default_user', name.trim());
++    await loadUserWorkouts('default_user');
++    await loadUserHistory('default_user');
++    await loadUserGamification('default_user');
++    await loadUserExercises('default_user');
+   };
+ 
++  if (loading) {
++    return (
++      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
++        <p className="neon-cyan" style={{ fontFamily: 'var(--font-mono)' }}>Loading...</p>
++      </div>
++    );
++  }
++
+   return (
+     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', padding: '2rem' }}>
+       <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+@@ -55,70 +57,25 @@ export const Auth = () => {
+           <span className="neon-cyan">OMNI</span>BODY
+         </h1>
+         <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', marginTop: '0.5rem', letterSpacing: '0.05em' }}>
+-          {t('auth.tagline') || 'Select your profile'}
++          {t('auth.tagline') || 'Your AI-powered biomechanical companion'}
+         </p>
+       </div>
+ 
+-      {!showNew ? (
+-        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', justifyContent: 'center', maxWidth: 600 }}>
+-          {users.map((u) => (
+-            <button
+-              key={u.id}
+-              onClick={() => handleSelectProfile(u.id)}
+-              style={{
+-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem',
+-                background: 'transparent', border: 'none', cursor: 'pointer', transition: 'transform 0.2s'
+-              }}
+-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+-            >
+-              <div style={{
+-                width: 80, height: 80, borderRadius: 16, background: 'var(--cyan)',
+-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+-                boxShadow: '0 4px 15px rgba(0, 240, 255, 0.3)'
+-              }}>
+-                <User size={40} color="#000" />
+-              </div>
+-              <span style={{ color: '#fff', fontWeight: 600, fontSize: '1.1rem' }}>{u.profile.name}</span>
+-            </button>
+-          ))}
+-
+-          <button
+-            onClick={() => setShowNew(true)}
+-            style={{
+-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem',
+-              background: 'transparent', border: 'none', cursor: 'pointer', transition: 'transform 0.2s'
+-            }}
+-            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+-            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+-          >
+-            <div style={{
+-              width: 80, height: 80, borderRadius: 16, background: 'rgba(255,255,255,0.1)',
+-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+-              border: '2px dashed rgba(255,255,255,0.3)'
+-            }}>
+-              <Plus size={40} color="rgba(255,255,255,0.5)" />
+-            </div>
+-            <span style={{ color: 'var(--color-text-muted)', fontWeight: 600, fontSize: '1.1rem' }}>New Profile</span>
+-          </button>
+-        </div>
+-      ) : (
+-        <form onSubmit={handleCreateProfile} className="glass-card" style={{ width: '100%', maxWidth: '360px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+-          <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', textAlign: 'center', marginBottom: '0.5rem' }}>Create Profile</h2>
++      <form onSubmit={handleLogin} className="glass-card" style={{ width: '100%', maxWidth: '360px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
++        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', textAlign: 'center', marginBottom: '0.5rem' }}>Login / Setup</h2>
++        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
++          <label style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Name / Username</label>
+           <input
+             type="text"
+             placeholder="Enter your name"
+-            value={newName}
+-            onChange={(e) => setNewName(e.target.value)}
++            value={name}
++            onChange={(e) => setName(e.target.value)}
+             style={{ width: '100%', padding: '0.75rem 1rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,240,255,0.2)', borderRadius: 8, color: '#fff' }}
+             autoFocus
+           />
+-          <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem' }}>Start</button>
+-          <button type="button" onClick={() => setShowNew(false)} className="btn-secondary" style={{ border: 'none', background: 'transparent', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+-            Cancel
+-          </button>
+-        </form>
+-      )}
++        </div>
++        <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem' }}>Start</button>
++      </form>
+     </div>
+   );
+ };
+diff --git a/src/pages/Calendar.tsx b/src/pages/Calendar.tsx
+index 49b3931..3c674e3 100644
+--- a/src/pages/Calendar.tsx
++++ b/src/pages/Calendar.tsx
+@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
+ import { useWorkoutStore } from '../store/useWorkoutStore';
+ import { useExerciseStore } from '../store/useExerciseStore';
+ import { useDeviceStore } from '../store/useDeviceStore';
++import { useNutritionStore } from '../store/useNutritionStore';
++import { startOfDay } from 'date-fns';
+ import { useT } from '../hooks/useT';
+-import { ChevronLeft, ChevronRight, Plus, X, Calendar as CalendarIcon, CheckCircle2, HeartPulse } from 'lucide-react';
++import { ChevronLeft, ChevronRight, Plus, X, Calendar as CalendarIcon, CheckCircle2, HeartPulse, Utensils, Activity } from 'lucide-react';
+ 
+ const CalendarPage = () => {
+   const t = useT();
+@@ -42,19 +44,9 @@ const CalendarPage = () => {
+ 
+   const getDayStatus = (d: Date) => {
+     const dStr = formatDateString(d);
+-
+-    const completed = history.filter(h => {
+-      const hd = new Date(h.date);
+-      return formatDateString(hd) === dStr;
+-    });
+-
++    const completed = history.filter(h => formatDateString(new Date(h.date)) === dStr);
+     const scheduled = scheduledSessions.filter(s => s.date === dStr);
+-
+-    const deviceDay = deviceSessions.filter(s => {
+-      const sd = new Date(s.date);
+-      return formatDateString(sd) === dStr;
+-    });
+-
++    const deviceDay = deviceSessions.filter(s => formatDateString(new Date(s.date)) === dStr);
+     return { completed, scheduled, deviceSessions: deviceDay };
+   };
+ 
+@@ -66,50 +58,33 @@ const CalendarPage = () => {
+   const renderDays = () => {
+     const days = [];
+     const todayStr = formatDateString(new Date());
+-
+     for (let i = 0; i < firstDayOfMonth; i++) {
+-      days.push(<div key={`empty-${i}`} style={{ opacity: 0.1 }}></div>);
++      days.push(<div key={`empty-${i}`} style={{ opacity: 0.1 }} />);
+     }
+-
+     for (let day = 1; day <= daysInMonth; day++) {
+       const d = new Date(year, month, day);
+       const dStr = formatDateString(d);
+       const isToday = dStr === todayStr;
+-
+       const { completed, scheduled, deviceSessions: deviceDay } = getDayStatus(d);
+-
+       const hasCompleted = completed.length > 0;
+       const hasScheduled = scheduled.length > 0;
+       const hasDevice = deviceDay.length > 0;
+-
+-      // Priority: completed > device > scheduled
+-
+-
+       days.push(
+         <div key={day} onClick={() => handleDayClick(day)}
+           style={{
+             aspectRatio: '1',
+             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+-            background: isToday ? 'rgba(0, 240, 255, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+-            border: isToday ? '1px solid var(--cyan)' : '1px solid rgba(255, 255, 255, 0.05)',
+-            borderRadius: 'var(--radius-md)',
+-            cursor: 'pointer',
+-            position: 'relative',
+-            color: hasCompleted ? 'var(--cyan)' : 'var(--color-text)'
++            background: isToday ? 'rgba(0,240,255,0.15)' : 'rgba(255,255,255,0.02)',
++            border: isToday ? '1px solid var(--cyan)' : '1px solid rgba(255,255,255,0.05)',
++            borderRadius: 'var(--radius-md)', cursor: 'pointer', position: 'relative',
++            color: hasCompleted ? 'var(--cyan)' : 'var(--color-text)',
+           }}
+         >
+           <span style={{ fontSize: '1rem', fontWeight: 600 }}>{day}</span>
+-          {/* Multi-dot row when multiple event types */}
+           <div style={{ display: 'flex', gap: 3, position: 'absolute', bottom: '5px' }}>
+-            {hasCompleted && (
+-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--cyan)' }} />
+-            )}
+-            {hasDevice && (
+-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--magenta)' }} />
+-            )}
+-            {hasScheduled && !hasCompleted && (
+-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--gold)' }} />
+-            )}
++            {hasCompleted && <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--cyan)' }} />}
++            {hasDevice && <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--magenta)' }} />}
++            {hasScheduled && !hasCompleted && <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--gold)' }} />}
+           </div>
+         </div>
+       );
+@@ -127,40 +102,24 @@ const CalendarPage = () => {
+ 
+         <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+-            <button onClick={prevMonth} className="btn-secondary" style={{ padding: '0.5rem' }}>
+-              <ChevronLeft size={20} />
+-            </button>
+-            <h2 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-heading)', fontWeight: 700, margin: 0 }}>
+-              {monthNames[month]} {year}
+-            </h2>
+-            <button onClick={nextMonth} className="btn-secondary" style={{ padding: '0.5rem' }}>
+-              <ChevronRight size={20} />
+-            </button>
++            <button onClick={prevMonth} className="btn-secondary" style={{ padding: '0.5rem' }}><ChevronLeft size={20} /></button>
++            <h2 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-heading)', fontWeight: 700, margin: 0 }}>{monthNames[month]} {year}</h2>
++            <button onClick={nextMonth} className="btn-secondary" style={{ padding: '0.5rem' }}><ChevronRight size={20} /></button>
+           </div>
+-
+-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem', marginBottom: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d}>{d}</div>)}
++          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '0.5rem', marginBottom: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
++            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <div key={d}>{d}</div>)}
+           </div>
+-
+-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem' }}>
++          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '0.5rem' }}>
+             {renderDays()}
+           </div>
+         </div>
+ 
+-        {/* Legend */}
+         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', fontSize: '0.8rem', color: 'var(--color-text-muted)', flexWrap: 'wrap' }}>
+-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)' }}></div>
+-            مكتمل
+-          </div>
+-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--magenta)' }}></div>
+-            جلسة جارمن
+-          </div>
+-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--gold)' }}></div>
+-            مجدول
+-          </div>
++          {[['var(--cyan)','مكتمل'],['var(--magenta)','جلسة جارمن'],['var(--gold)','مجدول']].map(([bg,label]) => (
++            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
++              <div style={{ width: 8, height: 8, borderRadius: '50%', background: bg }} />{label}
++            </div>
++          ))}
+         </div>
+       </div>
+ 
+@@ -180,30 +139,17 @@ const CalendarPage = () => {
+ 
+ // ── Device Session Card ───────────────────────────────────────────────────────
+ const DeviceSessionCard = ({ session }: { session: any }) => {
+-  const formatDuration = (s: number) =>
+-    `${Math.floor(s / 60)}د ${s % 60}ث`;
+-
+   const zonesWithTime = session.zones?.filter((z: any) => z.minutes > 0) ?? [];
+-
+   return (
+-    <div style={{
+-      background: 'rgba(255,0,85,0.05)', border: '1px solid rgba(255,0,85,0.2)',
+-      borderRadius: '12px', padding: '1rem', marginBottom: '1rem'
+-    }}>
++    <div style={{ background: 'rgba(255,0,85,0.05)', border: '1px solid rgba(255,0,85,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
+       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+         <div style={{ fontWeight: 600, color: 'var(--magenta)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+           <HeartPulse size={16} /> {session.deviceName}
+         </div>
+-        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+-          {formatDuration(session.duration)}
+-        </div>
++        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{Math.floor(session.duration/60)}د {session.duration%60}ث</div>
+       </div>
+       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: zonesWithTime.length ? '0.75rem' : 0 }}>
+-        {[
+-          { label: 'متوسط', val: session.avgHR, color: 'var(--cyan)' },
+-          { label: 'أعلى', val: session.maxHR, color: 'var(--magenta)' },
+-          { label: 'أدنى', val: session.minHR, color: 'var(--gold)' },
+-        ].map(({ label, val, color }) => (
++        {[{ label:'متوسط', val: session.avgHR, color:'var(--cyan)' },{ label:'أعلى', val: session.maxHR, color:'var(--magenta)' },{ label:'أدنى', val: session.minHR, color:'var(--gold)' }].map(({ label, val, color }) => (
+           <div key={label} style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '0.4rem' }}>
+             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color }}>{val}</div>
+             <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>{label} · bpm</div>
+@@ -213,11 +159,7 @@ const DeviceSessionCard = ({ session }: { session: any }) => {
+       {zonesWithTime.length > 0 && (
+         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+           {zonesWithTime.map((z: any, i: number) => (
+-            <div key={i} style={{
+-              fontSize: '0.65rem', padding: '0.2rem 0.5rem',
+-              borderRadius: '999px', background: `${z.color}20`, color: z.color,
+-              border: `1px solid ${z.color}40`
+-            }}>
++            <div key={i} style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: '999px', background: `${z.color}20`, color: z.color, border: `1px solid ${z.color}40` }}>
+               {z.name} · {z.minutes.toFixed(1)}د
+             </div>
+           ))}
+@@ -226,114 +168,156 @@ const DeviceSessionCard = ({ session }: { session: any }) => {
+     </div>
+   );
+ };
++import { useUserStore } from '../store/useUserStore';
+ 
+-// ── Day Modal ─────────────────────────────────────────────────────────────────
++// ── Day Modal (3 tabs: Workouts | Nutrition | Health) ─────────────────────────
+ const DayModal = ({ date, onClose, dayStatus, scheduleSession, removeScheduledSession, templates }: any) => {
+   const t = useT();
+   const [view, setView] = useState<'list' | 'add'>('list');
+-  const dStr = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
++  const [activeTab, setActiveTab] = useState<'workouts' | 'nutrition' | 'health'>('workouts');
++  const dStr = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2,'0')}-${date.getDate().toString().padStart(2,'0')}`;
+ 
+-  const handleAdd = (name: string, ids: string[]) => {
+-    scheduleSession(dStr, name, ids);
+-    setView('list');
+-  };
++  const getLogForDate = useNutritionStore(s => s.getLogForDate);
++  const getTargets = useNutritionStore(s => s.getTargets);
++  const profile = useUserStore(s => s.profile);
++  const nutritionLog = getLogForDate(startOfDay(date).getTime());
++  const targets = getTargets(profile.weight);
++
++  let totalCal = 0, totalPro = 0, totalCarbs = 0, totalFats = 0;
++  nutritionLog.meals.forEach(m => m.foods.forEach(f => {
++    totalCal += f.calories; totalPro += f.protein; totalCarbs += f.carbs; totalFats += f.fats;
++  }));
+ 
+-  const hasAnything =
+-    dayStatus.completed.length > 0 ||
+-    dayStatus.scheduled.length > 0 ||
+-    dayStatus.deviceSessions.length > 0;
++  const hasAnything = dayStatus.completed.length > 0 || dayStatus.scheduled.length > 0 || dayStatus.deviceSessions.length > 0;
+ 
+   const content = (
+-    <div style={{
+-      position: 'fixed', inset: 0, zIndex: 1000,
+-      background: 'rgba(2, 4, 8, 0.85)', backdropFilter: 'blur(8px)',
+-      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+-      animation: 'fadeIn 0.2s ease'
+-    }}>
+-      <div style={{
+-        background: 'var(--bg-card)', borderTop: '1px solid rgba(0,240,255,0.1)',
+-        padding: '1.5rem', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
+-        maxHeight: '80vh', overflowY: 'auto', position: 'relative'
+-      }}>
+-        <button onClick={onClose} style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', color: 'var(--color-text-muted)' }}>
+-          <X size={20} />
+-        </button>
++    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(2,4,8,0.85)', backdropFilter: 'blur(8px)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn 0.2s ease' }}>
++      <div style={{ background: 'var(--bg-card)', borderTop: '1px solid rgba(0,240,255,0.1)', padding: '1.5rem', borderTopLeftRadius: '24px', borderTopRightRadius: '24px', maxHeight: '85vh', overflowY: 'auto', position: 'relative' }}>
++        <button onClick={onClose} style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', color: 'var(--color-text-muted)' }}><X size={20} /></button>
+ 
+-        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'var(--font-heading)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'var(--font-heading)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+           <CalendarIcon size={22} className="neon-cyan" />
+           {date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+         </h3>
+ 
+-        {view === 'list' ? (
+-          <>
+-            {!hasAnything && (
+-              <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+-                {t('calendar.no_plans') || 'No workouts planned.'}
+-              </div>
+-            )}
+-
+-            {/* Device sessions */}
+-            {dayStatus.deviceSessions.map((session: any) => (
+-              <DeviceSessionCard key={session.id} session={session} />
+-            ))}
++        {/* Tab Bar */}
++        <div className="tab-bar" style={{ marginBottom: '1.25rem' }}>
++          <button className={`tab-btn ${activeTab === 'workouts' ? 'active' : ''}`} onClick={() => setActiveTab('workouts')}>
++            <Activity size={14} style={{ display: 'inline', marginInlineEnd: 4, verticalAlign: 'middle' }} />Workouts
++          </button>
++          <button className={`tab-btn ${activeTab === 'nutrition' ? 'active' : ''}`} onClick={() => setActiveTab('nutrition')}>
++            <Utensils size={14} style={{ display: 'inline', marginInlineEnd: 4, verticalAlign: 'middle' }} />Nutrition
++          </button>
++          <button className={`tab-btn ${activeTab === 'health' ? 'active' : ''}`} onClick={() => setActiveTab('health')}>
++            <HeartPulse size={14} style={{ display: 'inline', marginInlineEnd: 4, verticalAlign: 'middle' }} />Health
++          </button>
++        </div>
+ 
+-            {/* Completed workout sessions */}
+-            {dayStatus.completed.map((session: any) => (
+-              <div key={session.sessionId} style={{
+-                background: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)',
+-                borderRadius: '12px', padding: '1rem', marginBottom: '1rem'
+-              }}>
+-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+-                  <div style={{ fontWeight: 600, color: 'var(--cyan)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+-                    <CheckCircle2 size={16} /> {session.type}
++        {/* ── Workouts Tab ── */}
++        {activeTab === 'workouts' && (
++          <>
++            {view === 'list' ? (
++              <>
++                {!hasAnything && (
++                  <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
++                    {t('calendar.no_plans') || 'No workouts planned.'}
+                   </div>
+-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Completed</div>
+-                </div>
+-                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+-                  {session.exercises.length} Exercises · Vol: {session.totalVolume}kg
++                )}
++                {dayStatus.completed.map((session: any) => (
++                  <div key={session.sessionId} style={{ background: 'rgba(0,240,255,0.05)', border: '1px solid rgba(0,240,255,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
++                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
++                      <div style={{ fontWeight: 600, color: 'var(--cyan)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
++                        <CheckCircle2 size={16} /> {session.type}
++                      </div>
++                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{session.exercises.length} ex · {session.totalVolume}kg</div>
++                    </div>
++                    {session.exercises.map((ex: any) => (
++                      <div key={ex.exerciseId} style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', borderTop: '1px solid rgba(0,240,255,0.06)', paddingTop: '0.4rem', marginTop: '0.4rem' }}>
++                        <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>{ex.exerciseId}</span>
++                        {' '}{ex.sets.filter((s: any) => s.completed).length}/{ex.sets.length} sets
++                      </div>
++                    ))}
++                  </div>
++                ))}
++                {dayStatus.scheduled.map((session: any) => (
++                  <div key={session.id} style={{ background: 'rgba(255,215,0,0.05)', border: '1px solid rgba(255,215,0,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
++                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
++                      <div style={{ fontWeight: 600, color: 'var(--gold)' }}>{session.type}</div>
++                      <button onClick={() => removeScheduledSession(session.id)} style={{ color: 'var(--magenta)', fontSize: '0.8rem' }}>Remove</button>
++                    </div>
++                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>{session.exerciseIds.length} Exercises</div>
++                  </div>
++                ))}
++                <button onClick={() => setView('add')} className="btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>
++                  <Plus size={18} style={{ marginRight: '8px' }} />{t('calendar.schedule_workout') || 'Schedule Workout'}
++                </button>
++              </>
++            ) : (
++              <>
++                <div style={{ marginBottom: '1.5rem', fontWeight: 600 }}>Select a template:</div>
++                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
++                  {Object.entries(templates).map(([name, ids]: any) => (
++                    <button key={name} onClick={() => { scheduleSession(dStr, name, ids); setView('list'); }}
++                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '1rem', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
++                      <span style={{ fontWeight: 600 }}>{name}</span>
++                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{ids.length} exercises</span>
++                    </button>
++                  ))}
+                 </div>
+-              </div>
+-            ))}
++                <button onClick={() => setView('list')} className="btn-secondary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>إلغاء</button>
++              </>
++            )}
++          </>
++        )}
+ 
+-            {/* Scheduled sessions */}
+-            {dayStatus.scheduled.map((session: any) => (
+-              <div key={session.id} style={{
+-                background: 'rgba(255, 215, 0, 0.05)', border: '1px solid rgba(255, 215, 0, 0.2)',
+-                borderRadius: '12px', padding: '1rem', marginBottom: '1rem'
+-              }}>
+-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+-                  <div style={{ fontWeight: 600, color: 'var(--gold)' }}>{session.type}</div>
+-                  <button onClick={() => removeScheduledSession(session.id)} style={{ color: 'var(--magenta)', fontSize: '0.8rem' }}>Remove</button>
++        {/* ── Nutrition Tab ── */}
++        {activeTab === 'nutrition' && (
++          <>
++            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.5rem', marginBottom: '1.25rem' }}>
++              {[
++                { label: 'Calories', val: Math.round(totalCal), target: targets.calories, color: 'var(--cyan)', unit: 'kcal' },
++                { label: 'Protein',  val: Math.round(totalPro),   target: targets.protein,  color: 'var(--color-success)', unit: 'g' },
++                { label: 'Carbs',   val: Math.round(totalCarbs),  target: targets.carbs,    color: 'var(--color-warning)', unit: 'g' },
++                { label: 'Fats',    val: Math.round(totalFats),   target: targets.fats,     color: 'var(--magenta)',       unit: 'g' },
++              ].map(({ label, val, target, color, unit }) => (
++                <div key={label} style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '0.6rem 0.25rem' }}>
++                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color, lineHeight: 1 }}>{val}</div>
++                  <div style={{ fontSize: '0.48rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>/{target}{unit}</div>
++                  <div style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)', marginTop: '0.15rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+                 </div>
+-                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+-                  {session.exerciseIds.length} Exercises Scheduled
++              ))}
++            </div>
++            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,240,255,0.04)', borderRadius: 10, padding: '0.6rem 1rem', marginBottom: '1rem', border: '1px solid rgba(0,240,255,0.1)' }}>
++              <span style={{ fontSize: '0.85rem', color: 'var(--cyan)' }}>💧 Water</span>
++              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--cyan)' }}>{nutritionLog.waterMl}ml <span style={{ opacity: 0.5 }}>/ {targets.water}ml</span></span>
++            </div>
++            {nutritionLog.meals.every(m => m.foods.length === 0) ? (
++              <div style={{ textAlign: 'center', padding: '1.5rem 0', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No food logged for this day.</div>
++            ) : nutritionLog.meals.map(meal => {
++              if (meal.foods.length === 0) return null;
++              return (
++                <div key={meal.id} style={{ marginBottom: '1rem' }}>
++                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.4rem' }}>{meal.type}</div>
++                  {meal.foods.map((food, fi) => (
++                    <div key={fi} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.8rem' }}>
++                      <span>{(food as any).nameAr || food.name} <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem' }}>({food.amount}{food.unit})</span></span>
++                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--cyan)', fontSize: '0.75rem' }}>{food.calories}kcal</span>
++                    </div>
++                  ))}
+                 </div>
+-              </div>
+-            ))}
+-
+-            <button onClick={() => setView('add')} className="btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>
+-              <Plus size={18} style={{ marginRight: '8px' }} /> {t('calendar.schedule_workout') || 'Schedule Workout'}
+-            </button>
++              );
++            })}
+           </>
+-        ) : (
++        )}
++
++        {/* ── Health Tab ── */}
++        {activeTab === 'health' && (
+           <>
+-            <div style={{ marginBottom: '1.5rem', fontWeight: 600 }}>Select a template to schedule:</div>
+-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+-              {Object.entries(templates).map(([name, ids]: any) => (
+-                <button key={name} onClick={() => handleAdd(name, ids)}
+-                  style={{
+-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+-                    borderRadius: '12px', padding: '1rem', textAlign: 'left',
+-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+-                  }}>
+-                  <span style={{ fontWeight: 600 }}>{name}</span>
+-                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{ids.length} exercises</span>
+-                </button>
+-              ))}
+-            </div>
+-            <button onClick={() => setView('list')} className="btn-secondary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }}>
+-              إلغاء
+-            </button>
++            {dayStatus.deviceSessions.length === 0 ? (
++              <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No wearable data for this day.</div>
++            ) : dayStatus.deviceSessions.map((session: any) => (
++              <DeviceSessionCard key={session.id} session={session} />
++            ))}
+           </>
+         )}
+       </div>
+diff --git a/src/pages/Dashboard.tsx b/src/pages/Dashboard.tsx
+index 385d9a9..1307a9b 100644
+--- a/src/pages/Dashboard.tsx
++++ b/src/pages/Dashboard.tsx
+@@ -6,7 +6,8 @@ import { useGamificationStore } from '../store/useGamificationStore';
+ import { useNavigate } from 'react-router-dom';
+ import {
+   Zap, TrendingUp, AlertTriangle, Dumbbell, Droplet,
+-  ChevronRight, Activity, Share2, Accessibility, Minus, Plus, Brain
++  ChevronRight, Activity, Share2, Accessibility, Minus, Plus, Brain,
++  Sparkles, Send, X, Loader2
+ } from 'lucide-react';
+ import { format, startOfDay } from 'date-fns';
+ import html2canvas from 'html2canvas';
+@@ -208,6 +209,8 @@ const VolumeCalculator = () => {
+ const AICoachInsight = ({ history, acwr, totalCal, targetCal, sessionCount }: {
+   history: any[]; acwr: number; totalCal: number; targetCal: number; sessionCount: number;
+ }) => {
++  const t = useT();
++  const profile = useUserStore(s => s.profile);
+   const lines: [string, string][] = [];     // [headline, subtitle]
+ 
+   if (sessionCount === 0) {
+@@ -245,57 +248,201 @@ const AICoachInsight = ({ history, acwr, totalCal, targetCal, sessionCount }: {
+ 
+   const [headline, subtitle] = lines[0];
+ 
++  // Conversation States
++  const [showChat, setShowChat] = useState(false);
++  const [messages, setMessages] = useState<{ role: 'user' | 'coach'; text: string }[]>([
++    { role: 'coach', text: "مرحباً بك بطل! أنا مدربك الشخصي المدعوم بالذكاء الاصطناعي من OmniBody. كيف يمكنني مساعدتك في تحقيق أهدافك البدنية والغذائية اليوم؟" }
++  ]);
++  const [input, setInput] = useState('');
++  const [loading, setLoading] = useState(false);
++  const messagesEndRef = useRef<HTMLDivElement>(null);
++
++  useEffect(() => {
++    if (messagesEndRef.current) {
++      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
++    }
++  }, [messages, loading]);
++
++  const handleSendMessage = async () => {
++    if (!input.trim() || loading) return;
++    const userText = input;
++    setInput('');
++    setMessages(prev => [...prev, { role: 'user', text: userText }]);
++    setLoading(true);
++
++    try {
++      const res = await fetch('/api/ai/coach', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({
++          prompt: userText,
++          context: {
++            profile,
++            history: history.slice(-5), // last 5 sessions for weight progression
++            acwr,
++            totalCal,
++            targetCal,
++            supplements: profile.supplements,
++            injuries: profile.injuries
++          }
++        })
++      });
++      const data = await res.json();
++      if (data.response) {
++        setMessages(prev => [...prev, { role: 'coach', text: data.response }]);
++      } else {
++        setMessages(prev => [...prev, { role: 'coach', text: "عذراً بطل، لم أستطع فهم ذلك بسبب خطأ في الاتصال بالسيرفر. يرجى المحاولة لاحقاً." }]);
++      }
++    } catch (e) {
++      console.error(e);
++      setMessages(prev => [...prev, { role: 'coach', text: "عذراً بطل، لم أستطع فهم ذلك بسبب خطأ في الاتصال بالسيرفر. يرجى المحاولة لاحقاً." }]);
++    } finally {
++      setLoading(false);
++    }
++  };
++
+   return (
+-    <div
+-      className="glass-card animate-fade-up"
+-      style={{
+-        padding: '1.25rem', marginBottom: '1.25rem',
+-        background: 'linear-gradient(135deg, rgba(0,240,255,0.04) 0%, rgba(255,0,110,0.03) 100%)',
+-        borderLeft: '3px solid var(--cyan)',
+-        position: 'relative', overflow: 'hidden',
+-      }}
+-    >
+-      {/* Decorative glow */}
+-      <div style={{
+-        position: 'absolute', top: -24, right: -24,
+-        width: 90, height: 90,
+-        background: 'var(--cyan-glow)', borderRadius: '50%',
+-        filter: 'blur(24px)', pointerEvents: 'none', opacity: 0.5,
+-      }} />
+-
+-      {/* Label row */}
+-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
++    <>
++      <div
++        className="glass-card animate-fade-up"
++        style={{
++          padding: '1.25rem', marginBottom: '1.25rem',
++          background: 'linear-gradient(135deg, rgba(0,240,255,0.04) 0%, rgba(255,0,110,0.03) 100%)',
++          borderLeft: '3px solid var(--cyan)',
++          position: 'relative', overflow: 'hidden', cursor: 'pointer'
++        }}
++        onClick={() => setShowChat(true)}
++      >
++        {/* Decorative glow */}
+         <div style={{
+-          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+-          background: 'linear-gradient(135deg, var(--cyan), var(--magenta))',
+-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+-          boxShadow: '0 0 10px var(--cyan-glow)',
+-        }}>
+-          <Brain size={13} color="#000" />
++          position: 'absolute', top: -24, right: -24,
++          width: 90, height: 90,
++          background: 'var(--cyan-glow)', borderRadius: '50%',
++          filter: 'blur(24px)', pointerEvents: 'none', opacity: 0.5,
++        }} />
++
++        {/* Label row */}
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
++          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++            <div style={{
++              width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
++              background: 'linear-gradient(135deg, var(--cyan), var(--magenta))',
++              display: 'flex', alignItems: 'center', justifyContent: 'center',
++              boxShadow: '0 0 10px var(--cyan-glow)',
++            }}>
++              <Brain size={13} color="#000" />
++            </div>
++            <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.68rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
++              AI Coach
++            </span>
++          </div>
++          <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem', background: 'rgba(0,240,255,0.1)', color: 'var(--cyan)', border: '1px solid rgba(0,240,255,0.3)', borderRadius: 4, fontWeight: 700 }}>
++            استشر المدرب 💬
++          </span>
+         </div>
+-        <span style={{ fontFamily: 'var(--font-heading)', fontSize: '0.68rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+-          AI Coach
+-        </span>
++
++        {/* Caveat handwriting text */}
++        <p style={{
++          fontFamily: 'var(--font-handwriting)',
++          fontSize: '1.35rem', fontWeight: 700, lineHeight: 1.35,
++          color: 'var(--color-text)', margin: '0 0 0.3rem',
++          position: 'relative', zIndex: 1,
++        }}>
++          {headline}
++        </p>
++        <p style={{
++          fontFamily: 'var(--font-handwriting)',
++          fontSize: '1.1rem', fontWeight: 400, lineHeight: 1.4,
++          color: 'var(--color-text-muted)', margin: 0,
++          position: 'relative', zIndex: 1,
++        }}>
++          {subtitle}
++        </p>
+       </div>
+ 
+-      {/* Caveat handwriting text */}
+-      <p style={{
+-        fontFamily: 'var(--font-handwriting)',
+-        fontSize: '1.35rem', fontWeight: 700, lineHeight: 1.35,
+-        color: 'var(--color-text)', margin: '0 0 0.3rem',
+-        position: 'relative', zIndex: 1,
+-      }}>
+-        {headline}
+-      </p>
+-      <p style={{
+-        fontFamily: 'var(--font-handwriting)',
+-        fontSize: '1.1rem', fontWeight: 400, lineHeight: 1.4,
+-        color: 'var(--color-text-muted)', margin: 0,
+-        position: 'relative', zIndex: 1,
+-      }}>
+-        {subtitle}
+-      </p>
+-    </div>
++      {/* Interactive Coach Dialog Modal */}
++      {showChat && (
++        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
++          <div className="glass-card animate-slide-up" style={{ width: '100%', maxWidth: '480px', height: '80vh', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, display: 'flex', flexDirection: 'column', border: '1px solid var(--cyan)', borderBottom: 'none' }}>
++            
++            {/* Chat Header */}
++            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
++              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
++                <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--cyan), var(--magenta))', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 10px rgba(0,240,255,0.4)' }}>
++                  <Brain size={16} color="#000" />
++                </div>
++                <div>
++                  <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '0.95rem', color: '#fff' }}>OmniBody Coach AI</div>
++                  <div style={{ fontSize: '0.65rem', color: 'var(--cyan)' }}>متصل ومستعد لتحليل تدريبك ونظامك الغذائي</div>
++                </div>
++              </div>
++              <button onClick={() => setShowChat(false)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '0.25rem' }}>
++                <X size={20} />
++              </button>
++            </div>
++
++            {/* Chat Messages */}
++            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
++              {messages.map((m, idx) => (
++                <div key={idx} style={{
++                  display: 'flex',
++                  justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
++                  alignItems: 'flex-start',
++                  gap: '0.5rem'
++                }}>
++                  {m.role === 'coach' && (
++                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,240,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--cyan)', flexShrink: 0 }}>
++                      <Brain size={11} color="var(--cyan)" />
++                    </div>
++                  )}
++                  <div style={{
++                    maxWidth: '80%',
++                    padding: '0.75rem 1rem',
++                    borderRadius: 12,
++                    fontSize: '0.85rem',
++                    lineHeight: 1.5,
++                    whiteSpace: 'pre-wrap',
++                    background: m.role === 'user' ? 'var(--cyan)' : 'rgba(255,255,255,0.04)',
++                    color: m.role === 'user' ? '#000' : '#fff',
++                    fontWeight: m.role === 'user' ? 600 : 400,
++                    border: m.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.08)'
++                  }}>
++                    {m.text}
++                  </div>
++                </div>
++              ))}
++              {loading && (
++                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
++                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,240,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--cyan)' }}>
++                    <Loader2 size={11} className="animate-spin" color="var(--cyan)" />
++                  </div>
++                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>جاري التفكير والكتابة...</div>
++                </div>
++              )}
++              <div ref={messagesEndRef} />
++            </div>
++
++            {/* Chat Input */}
++            <div style={{ padding: '0.8rem 1rem', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.3)' }}>
++              <input
++                type="text"
++                placeholder="اسأل المدرب عن إصابتك، تمارينك أو الكالوري..."
++                value={input}
++                onChange={e => setInput(e.target.value)}
++                onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
++                style={{ flex: 1, padding: '0.65rem 1rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,240,255,0.2)', borderRadius: 12, color: '#fff', fontSize: '0.85rem' }}
++              />
++              <button onClick={handleSendMessage} disabled={loading} style={{
++                background: 'var(--cyan)', border: 'none', width: '38px', height: '38px', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', cursor: 'pointer', transition: 'all 0.15s'
++              }}>
++                <Send size={16} />
++              </button>
++            </div>
++
++          </div>
++        </div>
++      )}
++    </>
+   );
+ };
+ 
+diff --git a/src/pages/Nutrition.tsx b/src/pages/Nutrition.tsx
+index 8082b30..7bf9f9b 100644
+--- a/src/pages/Nutrition.tsx
++++ b/src/pages/Nutrition.tsx
+@@ -1,16 +1,54 @@
+-import { useState } from 'react';
++import { useState, useEffect, useRef } from 'react';
+ import { useNutritionStore } from '../store/useNutritionStore';
+ import type { LoggedFood, NutritionDay } from '../store/useNutritionStore';
+ import { useUserStore } from '../store/useUserStore';
+-import { startOfDay } from 'date-fns';
++import { startOfDay, format } from 'date-fns';
++
+ import { FOOD_DATABASE } from '../data/foods';
+ import type { Food } from '../data/foods';
+ import { useGamificationStore } from '../store/useGamificationStore';
+-import { Search, Plus, X, Droplet, Check, ChevronDown, RotateCcw } from 'lucide-react';
++import { Search, Plus, X, Droplet, Check, ChevronDown, RotateCcw, Calendar, ChevronLeft, ChevronRight, Camera, Sparkles, Loader2 } from 'lucide-react';
++
+ import { useT } from '../hooks/useT';
+ import { useLanguageStore } from '../store/useLanguageStore';
++import db from '../db/db';
++
++// ── Circular Macro Ring ──────────────────────────────────────────────────────
++const MacroRing = ({ value, target, label, color, size = 72 }: {
++  value: number; target: number; label: string; color: string; size?: number;
++}) => {
++  const pct = Math.min(1, value / Math.max(1, target));
++  const r = (size - 10) / 2;
++  const circ = 2 * Math.PI * r;
++  const dash = circ * pct;
++  const over = pct >= 1;
++  const displayColor = over ? 'var(--color-warning)' : color;
++  return (
++    <div className="macro-ring-wrap">
++      <div className="water-ring-container" style={{ width: size, height: size }}>
++        <svg width={size} height={size}>
++          <circle cx={size/2} cy={size/2} r={r} fill="none"
++            stroke="rgba(255,255,255,0.06)" strokeWidth={8} />
++          <circle cx={size/2} cy={size/2} r={r} fill="none"
++            stroke={displayColor} strokeWidth={8}
++            strokeDasharray={`${dash} ${circ}`}
++            strokeLinecap="round"
++            style={{ transition: 'stroke-dasharray 0.7s var(--ease-out)', filter: `drop-shadow(0 0 4px ${displayColor})` }}
++          />
++        </svg>
++        <div className="water-ring-center">
++          <span style={{ fontFamily: 'var(--font-mono)', fontSize: size < 80 ? '0.8rem' : '1rem', fontWeight: 700, color: displayColor, lineHeight: 1 }}>
++            {Math.round(value)}
++          </span>
++          {target > 0 && <span style={{ fontSize: '0.5rem', color: 'var(--color-text-muted)', opacity: 0.8 }}>/{target}</span>}
++        </div>
++      </div>
++      <span className="macro-ring-label">{label}</span>
++    </div>
++  );
++};
+ 
+-// ── Macro Liquid Bar ──────────────────────────────────────────────────────────
++// ── Macro Bar ──────────────────────────────────────────────────────────────────
+ const MacroBar = ({ label, current, target, gradient, unit = 'g' }: {
+   label: string; current: number; target: number; gradient: string; unit?: string;
+ }) => {
+@@ -33,54 +71,71 @@ const MacroBar = ({ label, current, target, gradient, unit = 'g' }: {
+   );
+ };
+ 
+-// ── Water Bottle Visual ───────────────────────────────────────────────────────
+-const WaterBottle = ({ current, target }: { current: number; target: number }) => {
+-  const pct = Math.min(100, (current / target) * 100);
++
++// ── Water Section ────────────────────────────────────────────────────────────
++const WaterSection = ({ current, target, onAdd, onReset }: {
++  current: number; target: number; onAdd: (ml: number) => void; onReset: () => void;
++}) => {
++  const pct = Math.min(1, current / Math.max(1, target));
++  const size = 100;
++  const r = (size - 12) / 2;
++  const circ = 2 * Math.PI * r;
++  const dash = circ * pct;
+   return (
+-    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+-      <div style={{ position: 'relative', width: 36, height: 64, flexShrink: 0 }}>
+-        <svg viewBox="0 0 36 64" style={{ width: '100%', height: '100%' }}>
+-          {/* Bottle outline */}
+-          <rect x="10" y="0" width="16" height="8" rx="3" fill="rgba(0,240,255,0.15)" stroke="rgba(0,240,255,0.3)" strokeWidth="1"/>
+-          <rect x="4"  y="8" width="28" height="54" rx="6" fill="rgba(0,240,255,0.06)" stroke="rgba(0,240,255,0.25)" strokeWidth="1"/>
+-          {/* Water fill */}
+-          <clipPath id="bottleClip">
+-            <rect x="4" y="8" width="28" height="54" rx="6" />
+-          </clipPath>
+-          <rect x="4" y={8 + 54 * (1 - pct/100)} width="28" height={54 * pct/100} rx="0"
+-            fill="rgba(0,240,255,0.25)" clipPath="url(#bottleClip)"
+-            style={{ transition: 'y 0.6s ease, height 0.6s ease' }}
+-          />
+-        </svg>
+-      </div>
+-      <div style={{ flex: 1 }}>
+-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
+-          <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Droplet size={14} color="var(--cyan)" />Water</span>
+-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--cyan)' }}>{current}ml <span style={{ opacity: 0.5 }}>/ {target}ml</span></span>
+-        </div>
+-        <div className="macro-bar-track">
+-          <div className="macro-bar-fill" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--cyan), #0044ff)' }} />
++    <div>
++      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
++        {/* Circular Water Ring */}
++        <div className="water-ring-container" style={{ width: size, height: size, flexShrink: 0 }}>
++          <svg width={size} height={size}>
++            <circle cx={size/2} cy={size/2} r={r} fill="none"
++              stroke="rgba(0,240,255,0.1)" strokeWidth={10} />
++            <circle cx={size/2} cy={size/2} r={r} fill="none"
++              stroke="var(--cyan)" strokeWidth={10}
++              strokeDasharray={`${dash} ${circ}`}
++              strokeLinecap="round"
++              style={{ transition: 'stroke-dasharray 0.7s var(--ease-out)', filter: 'drop-shadow(0 0 6px rgba(0,240,255,0.6))' }}
++            />
++          </svg>
++          <div className="water-ring-center" style={{ flexDirection: 'column' }}>
++            <Droplet size={14} color="var(--cyan)" />
++            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: 'var(--cyan)', lineHeight: 1 }}>
++              {current}
++            </span>
++            <span style={{ fontSize: '0.48rem', color: 'var(--color-text-muted)' }}>/{target}ml</span>
++          </div>
+         </div>
+-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+-          {[250, 500, 750].map(ml => (
+-            <button key={ml} onClick={() => addWaterFn(ml)}
+-              style={{
+-                flex: 1, padding: '0.5rem 0.25rem', fontSize: '0.75rem',
+-                fontFamily: 'var(--font-mono)', fontWeight: 700,
+-                border: '1px solid rgba(0,240,255,0.2)', borderRadius: 'var(--radius-md)',
+-                color: 'var(--cyan)', background: 'rgba(0,240,255,0.05)',
+-                transition: 'all 0.2s',
+-              }}
+-            >+{ml}ml</button>
+-          ))}
++        {/* Quick Add Buttons */}
++        <div style={{ flex: 1 }}>
++          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
++            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text)' }}>💧 Water Intake</span>
++            <button onClick={onReset} style={{ background: 'none', border: 'none', color: 'rgba(255,0,0,0.5)', display: 'flex', cursor: 'pointer' }}>
++              <RotateCcw size={14} />
++            </button>
++          </div>
++          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
++            {[150, 250, 350, 500].map(ml => (
++              <button key={ml} onClick={() => onAdd(ml)}
++                style={{
++                  padding: '0.55rem 0.2rem',
++                  fontSize: '0.72rem', fontFamily: 'var(--font-mono)', fontWeight: 700,
++                  border: '1px solid rgba(0,240,255,0.25)', borderRadius: 'var(--radius-md)',
++                  color: 'var(--cyan)', background: 'rgba(0,240,255,0.06)',
++                  transition: 'all 0.2s', cursor: 'pointer',
++                }}
++              >+{ml}ml</button>
++            ))}
++          </div>
++          <div className="macro-bar-track" style={{ marginTop: '0.6rem', height: 6 }}>
++            <div className="macro-bar-fill"
++              style={{ width: `${Math.min(100, pct * 100)}%`, background: 'linear-gradient(90deg,var(--cyan),#0044ff)', height: 6 }} />
++          </div>
+         </div>
+       </div>
+     </div>
+   );
+ };
+ 
+-// Temp global fn ref (passed via closure)
+-let addWaterFn = (_ml: number) => {};
++
+ 
+ // ── Supplement Checklist ──────────────────────────────────────────────────────
+ const Supplements = ({ todayLog, onReset }: { todayLog: NutritionDay, onReset: () => void }) => {
+@@ -200,7 +255,7 @@ const FoodResultRow = ({ food, onAdd }: { food: Food, onAdd: (food: Food, quanti
+ const Nutrition = () => {
+   const t            = useT();
+   const profile      = useUserStore(s => s.profile);
+-  const getTodayLog  = useNutritionStore(s => s.getTodayLog);
++  const getLogForDate = useNutritionStore(s => s.getLogForDate);
+   const historyData  = useNutritionStore(s => s.history);
+   const getTargets   = useNutritionStore(s => s.getTargets);
+   const addFood      = useNutritionStore(s => s.addFood);
+@@ -212,17 +267,140 @@ const Nutrition = () => {
+   const addXP        = useGamificationStore(s => s.addXP);
+   const unlockBadge  = useGamificationStore(s => s.unlockBadge);
+ 
+-  const todayStr = startOfDay(new Date()).getTime();
+-  const todayLog = historyData[todayStr] || getTodayLog();
++  // Historical date state
++  const [selectedDate, setSelectedDate] = useState<number>(startOfDay(new Date()).getTime());
++  const todayLog = historyData[selectedDate] || getLogForDate(selectedDate);
+   const targets  = getTargets(profile.weight);
+-  addWaterFn     = (ml) => { addWater(todayLog.date, ml); };
+ 
++  // Search, custom foods, and AI Scanner states
+   const [search, setSearch]       = useState('');
+   const [searchTab, setSearchTab] = useState<'all' | 'raw'>('all');
+   const [mealType, setMealType]   = useState('Breakfast');
+   const [openMeals, setOpenMeals] = useState<Record<string, boolean>>({ Breakfast: true });
+   const [showMicros, setShowMicros] = useState(false);
+ 
++  const [customFoods, setCustomFoods] = useState<any[]>([]);
++  const [showAddCustomFood, setShowAddCustomFood] = useState(false);
++  const [newCustomFood, setNewCustomFood] = useState({
++    name: '', nameAr: '', category: 'Protein', calories: 150, protein: 15, carbs: 10, fats: 3, fiber: 0, sodium: 0, servingSize: 100, servingUnit: 'g'
++  });
++
++  const [aiScanning, setAiScanning] = useState(false);
++  const [aiScanResult, setAiScanResult] = useState<any | null>(null);
++  const [showAiResultModal, setShowAiResultModal] = useState(false);
++  const fileInputRef = useRef<HTMLInputElement>(null);
++
++  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
++  const barcodeScannerRef = useRef<any>(null);
++
++  const loadCustomFoods = async () => {
++    const list = await db.custom_foods.toArray();
++    setCustomFoods(list);
++  };
++
++  useEffect(() => {
++    loadCustomFoods();
++  }, []);
++
++  const changeDay = (days: number) => {
++    setSelectedDate(prev => prev + days * 24 * 60 * 60 * 1000);
++  };
++
++  const handleAiScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file) return;
++
++    setAiScanning(true);
++    try {
++      const reader = new FileReader();
++      reader.onload = async (event) => {
++        const base64WithHeader = event.target?.result as string;
++        const base64Data = base64WithHeader.split(',')[1];
++        const mimeType = file.type;
++
++        const res = await fetch('/api/ai/nutrition', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ imageBase64: base64Data, mimeType })
++        });
++
++        if (!res.ok) throw new Error('Failed to analyze image');
++        const result = await res.json();
++        setAiScanResult(result);
++        setShowAiResultModal(true);
++      };
++      reader.readAsDataURL(file);
++    } catch (error) {
++      console.error('Error scanning food:', error);
++    } finally {
++      setAiScanning(false);
++    }
++  };
++
++  const startBarcodeScanner = async () => {
++    setShowBarcodeScanner(true);
++    // slight delay to ensure DOM element is rendered
++    setTimeout(async () => {
++      try {
++        const { Html5Qrcode } = await import('html5-qrcode');
++        const scanner = new Html5Qrcode('barcode-reader-container');
++        barcodeScannerRef.current = scanner;
++        await scanner.start(
++          { facingMode: 'environment' },
++          { fps: 10, qrbox: { width: 250, height: 150 } },
++          (decodedText: string) => {
++            // Try to find food by barcode field
++            const found = FOOD_DATABASE.find((f: any) => f.barcode === decodedText);
++            if (found) {
++              handleAdd(found, found.servingSize);
++              setSearch(found.name);
++            } else {
++              setSearch(decodedText);
++            }
++            stopBarcodeScanner();
++          },
++          () => {/* ignore frame errors */}
++        );
++      } catch (err) {
++        console.error('Barcode scanner error:', err);
++        setShowBarcodeScanner(false);
++      }
++    }, 300);
++  };
++
++  const stopBarcodeScanner = () => {
++    if (barcodeScannerRef.current) {
++      barcodeScannerRef.current.stop().catch(() => {});
++      barcodeScannerRef.current = null;
++    }
++    setShowBarcodeScanner(false);
++  };
++
++  const handleCreateCustomFood = async () => {
++    if (!newCustomFood.name) return;
++    const foodId = 'custom_' + Math.random().toString(36).substring(2, 9);
++    const item = {
++      id: foodId,
++      name: newCustomFood.name,
++      nameAr: newCustomFood.nameAr || newCustomFood.name,
++      category: newCustomFood.category,
++      calories: Number(newCustomFood.calories) || 0,
++      protein: Number(newCustomFood.protein) || 0,
++      carbs: Number(newCustomFood.carbs) || 0,
++      fats: Number(newCustomFood.fats) || 0,
++      fiber: Number(newCustomFood.fiber) || 0,
++      sodium: Number(newCustomFood.sodium) || 0,
++      servingSize: Number(newCustomFood.servingSize) || 100,
++      servingUnit: newCustomFood.servingUnit || 'g'
++    };
++    await db.custom_foods.put(item);
++    await loadCustomFoods();
++    setShowAddCustomFood(false);
++    setNewCustomFood({
++      name: '', nameAr: '', category: 'Protein', calories: 150, protein: 15, carbs: 10, fats: 3, fiber: 0, sodium: 0, servingSize: 100, servingUnit: 'g'
++    });
++  };
++
+   let totalCal = 0, totalPro = 0, totalCarbs = 0, totalFats = 0;
+   let tFib = 0, tSug = 0, tSod = 0, tPot = 0, tIron = 0, tCal = 0, tVitA = 0, tVitC = 0, tVitD = 0, tVitB12 = 0;
+ 
+@@ -243,10 +421,13 @@ const Nutrition = () => {
+     tVitB12 += f.vitaminB12 || 0;
+   }));
+ 
++  const allFoods = [...FOOD_DATABASE, ...customFoods];
+   const filtered = search.length > 1
+-    ? FOOD_DATABASE.filter(f => {
++    ? allFoods.filter(f => {
+         if (searchTab === 'raw' && f.category !== 'Raw') return false;
+-        return f.name.toLowerCase().includes(search.toLowerCase());
++        const nameMatch = f.name.toLowerCase().includes(search.toLowerCase());
++        const arNameMatch = f.nameAr && f.nameAr.includes(search);
++        return nameMatch || arNameMatch;
+       }).slice(0, 10)
+     : [];
+ 
+@@ -334,24 +515,36 @@ const Nutrition = () => {
+         </h1>
+       </header>
+ 
++      {/* Date Switcher */}
++      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,240,255,0.03)', borderRadius: 12, padding: '0.75rem 1rem', marginBottom: '1.25rem', border: '1px solid rgba(0,240,255,0.08)' }}>
++        <button onClick={() => changeDay(-1)} style={{ padding: '0.4rem', color: 'var(--cyan)', background: 'rgba(0,240,255,0.06)', borderRadius: '50%', border: 'none', display: 'flex' }}>
++          <ChevronRight size={18} />
++        </button>
++        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++          <Calendar size={16} color="var(--cyan)" />
++          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
++            {format(selectedDate, 'eeee, MMMM d')}
++          </span>
++          {startOfDay(new Date()).getTime() === selectedDate && (
++            <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: 'var(--cyan)', color: '#000', borderRadius: 4, fontWeight: 700 }}>{t('common.today' as any) || 'Today'}</span>
++          )}
++        </div>
++        <button onClick={() => changeDay(1)} style={{ padding: '0.4rem', color: 'var(--cyan)', background: 'rgba(0,240,255,0.06)', borderRadius: '50%', border: 'none', display: 'flex' }}>
++          <ChevronLeft size={18} />
++        </button>
++      </div>
++
+       {/* Macro Summary */}
+       <div className="glass-card animate-fade-up" style={{ padding: '1.5rem', marginBottom: '1.25rem' }}>
++        {/* Circular Macro Rings */}
+         <div style={{
+           display: 'flex', justifyContent: 'space-around', marginBottom: '1.5rem',
+-          textAlign: 'center', gap: '0.5rem',
++          gap: '0.25rem',
+         }}>
+-          {[
+-            { label: t('dash.calories'), val: Math.round(totalCal), unit: t('common.kcal'), color: 'var(--cyan)' },
+-            { label: t('dash.protein'), val: Math.round(totalPro), unit: 'g', color: 'var(--color-success)' },
+-            { label: t('nutrition.carbs'), val: Math.round(totalCarbs), unit: 'g', color: 'var(--color-warning)' },
+-            { label: t('nutrition.fats'), val: Math.round(totalFats), unit: 'g', color: 'var(--magenta)' },
+-          ].map(({ label, val, unit, color }) => (
+-            <div key={label}>
+-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color, lineHeight: 1 }}>{val}</div>
+-              <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</div>
+-              <div style={{ fontSize: '0.65rem', color, opacity: 0.6, fontFamily: 'var(--font-mono)' }}>{unit}</div>
+-            </div>
+-          ))}
++          <MacroRing value={Math.round(totalCal)} target={targets.calories} label={t('dash.calories')} color="var(--cyan)" size={76} />
++          <MacroRing value={Math.round(totalPro)} target={targets.protein} label={t('dash.protein')} color="var(--color-success)" size={76} />
++          <MacroRing value={Math.round(totalCarbs)} target={targets.carbs} label={t('nutrition.carbs')} color="var(--color-warning)" size={76} />
++          <MacroRing value={Math.round(totalFats)} target={targets.fats} label={t('nutrition.fats')} color="var(--magenta)" size={76} />
+         </div>
+         <MacroBar label={t('dash.calories')} current={totalCal} target={targets.calories} gradient="linear-gradient(90deg,var(--cyan),#0080ff)" unit={` ${t('common.kcal')}`} />
+         <MacroBar label={t('dash.protein')} current={totalPro} target={targets.protein} gradient="linear-gradient(90deg,#00ff88,var(--cyan))" />
+@@ -365,48 +558,168 @@ const Nutrition = () => {
+         }}>
+           {t('nutrition.more_nutrients')} <ChevronDown size={14} style={{ transform: showMicros ? 'rotate(180deg)' : 'none', transition: '0.2s' }} />
+         </button>
+-        {showMicros && (
+-          <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem 1.25rem', fontSize: '0.75rem' }}>
+-            {[
+-              { label: t('nutrition.fiber'),     val: `${Math.round(tFib)}g` },
+-              { label: t('nutrition.sugar'),     val: `${Math.round(tSug)}g` },
+-              { label: t('nutrition.sodium'),    val: `${Math.round(tSod)}mg` },
+-              { label: t('nutrition.potassium'), val: `${Math.round(tPot)}mg` },
+-              { label: t('nutrition.iron'),      val: `${tIron.toFixed(1)}mg` },
+-              { label: t('nutrition.calcium'),   val: `${Math.round(tCal)}mg` },
+-              { label: t('nutrition.vitaminC'),  val: `${Math.round(tVitC)}mg` },
+-              { label: t('nutrition.vitaminA'),  val: `${Math.round(tVitA)}mcg` },
+-              { label: t('nutrition.vitaminD'),  val: `${tVitD.toFixed(1)}mcg` },
+-            ].map(({ label, val }) => (
+-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.25rem' }}>
+-                <span style={{ color: 'var(--color-text-muted)' }}>{label}</span>
+-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{val}</span>
+-              </div>
+-            ))}
+-          </div>
+-        )}
++        {showMicros && (() => {
++          const microRows = [
++            { label: t('nutrition.fiber'),     current: tFib,              target: targets.fiber,      unit: 'g',   color: '#a78bfa' },
++            { label: t('nutrition.sugar'),     current: tSug,              target: 50,                 unit: 'g',   color: '#fb923c' },
++            { label: t('nutrition.sodium'),    current: tSod,              target: targets.sodium,     unit: 'mg',  color: '#60a5fa' },
++            { label: t('nutrition.potassium'), current: tPot,              target: targets.potassium,  unit: 'mg',  color: '#a78bfa' },
++            { label: t('nutrition.iron'),      current: tIron,             target: targets.iron,       unit: 'mg',  color: '#f87171' },
++            { label: t('nutrition.calcium'),   current: tCal,              target: targets.calcium,    unit: 'mg',  color: '#94a3b8' },
++            { label: t('nutrition.vitaminC'),  current: tVitC,             target: targets.vitaminC,   unit: 'mg',  color: '#f97316' },
++            { label: t('nutrition.vitaminA'),  current: tVitA,             target: targets.vitaminA,   unit: 'mcg', color: '#fbbf24' },
++            { label: t('nutrition.vitaminD'),  current: tVitD,             target: targets.vitaminD,   unit: 'IU',  color: '#fde68a' },
++            { label: t('nutrition.vitaminB12'),current: tVitB12,           target: targets.vitaminB12, unit: 'mcg', color: '#e879f9' },
++          ];
++          return (
++            <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
++              {microRows.map(({ label, current, target, unit, color }) => {
++                const pct = Math.min(100, (current / Math.max(1, target)) * 100);
++                const over = pct >= 100;
++                const displayColor = over ? 'var(--color-warning)' : color;
++                const displayVal = unit === 'g' || unit === 'mcg'
++                  ? current.toFixed(1)
++                  : Math.round(current);
++                const targetVal = unit === 'g' || unit === 'mcg'
++                  ? Number(target).toFixed(1)
++                  : Math.round(target);
++                return (
++                  <div key={label}>
++                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', marginBottom: '0.2rem' }}>
++                      <span style={{ color: 'var(--color-text-muted)' }}>{label}</span>
++                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: displayColor }}>
++                        {displayVal}<span style={{ opacity: 0.6 }}>{unit}</span>
++                        <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}> / {targetVal}{unit}</span>
++                      </span>
++                    </div>
++                    <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
++                      <div style={{
++                        height: '100%', width: `${pct}%`, borderRadius: 999,
++                        background: displayColor,
++                        transition: 'width 0.6s var(--ease-out)',
++                        boxShadow: `0 0 6px ${displayColor}66`
++                      }} />
++                    </div>
++                  </div>
++                );
++              })}
++            </div>
++          );
++        })()}
+       </div>
+ 
+       {/* Water */}
+       <div className="glass-card animate-fade-up" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+-          <div className="section-label" style={{ margin: 0 }}>{t('nutrition.water')}</div>
+-          <button 
+-            onClick={() => window.confirm('Reset water intake to 0?') && resetWater(todayLog.date)}
+-            style={{ background: 'none', border: 'none', color: 'rgba(255,0,0,0.6)', cursor: 'pointer', display: 'flex' }}
+-          >
+-            <RotateCcw size={16} />
+-          </button>
+-        </div>
+-        <WaterBottle current={todayLog.waterMl} target={targets.water} />
++        <WaterSection
++          current={todayLog.waterMl}
++          target={targets.water}
++          onAdd={(ml) => addWater(selectedDate, ml)}
++          onReset={() => window.confirm('Reset water intake to 0?') && resetWater(todayLog.date)}
++        />
+       </div>
+ 
+       {/* Food Search + Add */}
+       <div className="animate-fade-up" style={{ marginBottom: '1.25rem' }}>
+         <div className="section-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+-          {t('nutrition.log_food')}
++          <span>{t('nutrition.log_food')}</span>
++          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
++            {/* AI Scan Button */}
++            <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAiScan} style={{ display: 'none' }} />
++            <button onClick={() => fileInputRef.current?.click()} disabled={aiScanning} style={{
++              display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 700,
++              background: 'linear-gradient(135deg, var(--cyan), var(--magenta))', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer',
++              boxShadow: '0 0 10px rgba(0,240,255,0.3)', transition: 'all 0.2s'
++            }}>
++              {aiScanning ? <Loader2 className="animate-spin" size={14} /> : <Camera size={14} />}
++              {aiScanning ? t('common.loading') : 'AI Scan'}
++            </button>
++
++            {/* Barcode Scanner Button */}
++            <button onClick={showBarcodeScanner ? stopBarcodeScanner : startBarcodeScanner} style={{
++              display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 700,
++              background: showBarcodeScanner ? 'rgba(255,0,85,0.15)' : 'rgba(255,170,0,0.12)',
++              color: showBarcodeScanner ? 'var(--magenta)' : 'var(--gold)',
++              border: `1px solid ${showBarcodeScanner ? 'rgba(255,0,85,0.3)' : 'rgba(255,170,0,0.3)'}`,
++              borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s'
++            }}>
++              {showBarcodeScanner ? <X size={14} /> : <Sparkles size={14} />}
++              {showBarcodeScanner ? t('nutrition.stop_scan') : t('nutrition.scan_barcode')}
++            </button>
++
++            {/* Add Custom Food Trigger */}
++            <button onClick={() => setShowAddCustomFood(!showAddCustomFood)} style={{
++              display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.35rem 0.6rem', fontSize: '0.75rem', fontWeight: 600,
++              background: 'rgba(255,170,0,0.1)', color: 'var(--gold)', border: '1px solid rgba(255,170,0,0.3)', borderRadius: 8, cursor: 'pointer'
++            }}>
++              <Plus size={12} /> {t('common.add')}
++            </button>
++          </div>
+         </div>
+-        
++
++        {/* Custom Food Creation Form */}
++        {showAddCustomFood && (
++          <div className="glass-card animate-fade-in" style={{ padding: '1.25rem', marginBottom: '1rem', border: '1px solid var(--gold)' }}>
++            <h4 style={{ fontFamily: 'var(--font-heading)', fontSize: '0.9rem', color: 'var(--gold)', marginBottom: '0.75rem' }}>{t('nutrition.log_food')}</h4>
++            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
++              <input type="text" placeholder={t('auth.name')} value={newCustomFood.name}
++                onChange={e => setNewCustomFood({ ...newCustomFood, name: e.target.value })}
++                style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff' }} />
++              <input type="text" placeholder={t('profile.bmi') ? 'Name (Arabic)' : 'Arabic Name'} value={newCustomFood.nameAr}
++                onChange={e => setNewCustomFood({ ...newCustomFood, nameAr: e.target.value })}
++                style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff' }} />
++            </div>
++            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginBottom: '0.75rem' }}>
++              <div>
++                <label style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.15rem' }}>{t('dash.calories')}</label>
++                <input type="number" value={newCustomFood.calories} onChange={e => setNewCustomFood({ ...newCustomFood, calories: parseInt(e.target.value) || 0 })}
++                  style={{ width: '100%', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem', textAlign: 'center' }} />
++              </div>
++              <div>
++                <label style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.15rem' }}>{t('dash.protein')} (g)</label>
++                <input type="number" value={newCustomFood.protein} onChange={e => setNewCustomFood({ ...newCustomFood, protein: parseFloat(e.target.value) || 0 })}
++                  style={{ width: '100%', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem', textAlign: 'center' }} />
++              </div>
++              <div>
++                <label style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.15rem' }}>{t('nutrition.carbs')} (g)</label>
++                <input type="number" value={newCustomFood.carbs} onChange={e => setNewCustomFood({ ...newCustomFood, carbs: parseFloat(e.target.value) || 0 })}
++                  style={{ width: '100%', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem', textAlign: 'center' }} />
++              </div>
++              <div>
++                <label style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.15rem' }}>{t('nutrition.fats')} (g)</label>
++                <input type="number" value={newCustomFood.fats} onChange={e => setNewCustomFood({ ...newCustomFood, fats: parseFloat(e.target.value) || 0 })}
++                  style={{ width: '100%', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem', textAlign: 'center' }} />
++              </div>
++            </div>
++            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
++              <select value={newCustomFood.category} onChange={e => setNewCustomFood({ ...newCustomFood, category: e.target.value })} style={{ fontSize: '0.8rem' }}>
++                <option value="Protein">بروتين / لحوم</option>
++                <option value="Dairy">ألبان</option>
++                <option value="Supermarket">منتجات سوبرماركت</option>
++                <option value="Fruit">فواكه / خضروات</option>
++                <option value="Cooked">مطبوخ</option>
++              </select>
++              <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
++                <input type="number" placeholder="الحجم" value={newCustomFood.servingSize} onChange={e => setNewCustomFood({ ...newCustomFood, servingSize: parseInt(e.target.value) || 100 })}
++                  style={{ flex: 1, padding: '0.5rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem' }} />
++                <input type="text" placeholder="الوحدة" value={newCustomFood.servingUnit} onChange={e => setNewCustomFood({ ...newCustomFood, servingUnit: e.target.value })}
++                  style={{ width: '45px', padding: '0.5rem', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', fontSize: '0.8rem', textAlign: 'center' }} />
++              </div>
++            </div>
++            <button className="btn-primary" onClick={handleCreateCustomFood} style={{ width: '100%', padding: '0.6rem', fontSize: '0.8rem', background: 'var(--gold)', borderColor: 'var(--gold)', color: '#000' }}>{t('common.save')}</button>
++          </div>
++        )}
++
++        {/* Barcode Scanner Container */}
++        {showBarcodeScanner && (
++          <div style={{ marginBottom: '1rem', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--gold)', background: '#000' }}>
++            <div id="barcode-reader-container" style={{ width: '100%', minHeight: 200 }} />
++            <div style={{ padding: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
++              {t('nutrition.scan_barcode')} — {t('nutrition.stop_scan')}
++            </div>
++          </div>
++        )}
++
++        {/* Search Bars */}
+         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+           <button onClick={() => setSearchTab('all')} style={{
+             flex: 1, padding: '0.4rem', fontSize: '0.75rem', fontWeight: 600,
+@@ -429,7 +742,7 @@ const Nutrition = () => {
+           </select>
+           <div style={{ position: 'relative', flex: 1 }}>
+             <Search size={16} style={{ position: 'absolute', insetInlineStart: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
+-            <input type="text" placeholder={t('nutrition.search')} value={search}
++            <input type="text" placeholder={t('nutrition.search') || "البحث عن طعام أو منتج..."} value={search}
+               onChange={e => setSearch(e.target.value)}
+               style={{ paddingInlineStart: '2.25rem' }}
+             />
+@@ -443,6 +756,78 @@ const Nutrition = () => {
+         )}
+       </div>
+ 
++      {/* AI Food Scan Success Modal */}
++      {showAiResultModal && aiScanResult && (
++        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
++          <div className="glass-card animate-scale-up" style={{ width: '100%', maxWidth: '420px', padding: '1.5rem', border: '1px solid var(--cyan)', position: 'relative' }}>
++            <button onClick={() => setShowAiResultModal(false)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', color: 'var(--color-text-muted)' }}><X size={18} /></button>
++            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
++              <Sparkles size={18} color="var(--cyan)" />
++              <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', color: 'var(--cyan)', margin: 0 }}>تحليل الوجبة بالذكاء الاصطناعي</h3>
++            </div>
++            
++            <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 8, padding: '1rem', marginBottom: '1rem', textAlign: 'center' }}>
++              <h4 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.25rem 0' }}>{useLanguageStore.getState().lang === 'ar' ? aiScanResult.nameAr : aiScanResult.name}</h4>
++              <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--magenta)', border: '1px solid var(--magenta)', padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 700 }}>
++                {aiScanResult.category}
++              </span>
++              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '1rem' }}>
++                <div>
++                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>{aiScanResult.calories}</div>
++                  <div style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)' }}>سعرة</div>
++                </div>
++                <div>
++                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-success)' }}>{aiScanResult.protein}g</div>
++                  <div style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)' }}>بروتين</div>
++                </div>
++                <div>
++                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-warning)' }}>{aiScanResult.carbs}g</div>
++                  <div style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)' }}>كارب</div>
++                </div>
++                <div>
++                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--magenta)' }}>{aiScanResult.fats}g</div>
++                  <div style={{ fontSize: '0.55rem', color: 'var(--color-text-muted)' }}>دهون</div>
++                </div>
++              </div>
++            </div>
++
++            {aiScanResult.analysis && (
++              <div style={{ padding: '0.75rem', background: 'rgba(0,240,255,0.04)', borderLeft: '3px solid var(--cyan)', borderRadius: '0 8px 8px 0', fontSize: '0.78rem', lineHeight: 1.4, color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
++                💡 <strong>رأي المدرب:</strong> {aiScanResult.analysis}
++              </div>
++            )}
++
++            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
++              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '0.5rem' }}>
++                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>إضافة إلى وجبة:</span>
++                <select value={mealType} onChange={e => setMealType(e.target.value)} style={{ flex: 1, padding: '0.25rem', fontSize: '0.8rem' }}>
++                  {MEAL_TYPE_KEYS.map(key => <option key={key} value={key}>{MEAL_TYPE_LABELS[key]}</option>)}
++                </select>
++              </div>
++              <button className="btn-primary" onClick={() => {
++                const scannedFood: Food = {
++                  id: 'scan_' + Date.now(),
++                  name: aiScanResult.name,
++                  nameAr: aiScanResult.nameAr,
++                  category: aiScanResult.category,
++                  calories: aiScanResult.calories,
++                  protein: aiScanResult.protein,
++                  carbs: aiScanResult.carbs,
++                  fats: aiScanResult.fats,
++                  fiber: aiScanResult.fiber,
++                  sodium: aiScanResult.sodium,
++                  potassium: aiScanResult.potassium,
++                  servingSize: aiScanResult.servingSize || 100,
++                  servingUnit: aiScanResult.servingUnit || 'g'
++                };
++                handleAdd(scannedFood, aiScanResult.servingSize || 100);
++                setShowAiResultModal(false);
++              }} style={{ width: '100%', padding: '0.75rem' }}>تسجيل هذه الوجبة الآن</button>
++            </div>
++          </div>
++        </div>
++      )}
++
+       {/* Meal Logs */}
+       <div style={{ marginBottom: '1.5rem' }}>
+         <div className="section-label">{t('nutrition.meals')}</div>
+diff --git a/src/pages/Profile.tsx b/src/pages/Profile.tsx
+index d3b8ca4..66c48f0 100644
+--- a/src/pages/Profile.tsx
++++ b/src/pages/Profile.tsx
+@@ -5,18 +5,21 @@ import { useUserStore } from '../store/useUserStore';
+ import { useWorkoutStore } from '../store/useWorkoutStore';
+ import { useGamificationStore } from '../store/useGamificationStore';
+ import { useDeviceStore } from '../store/useDeviceStore';
++import { useNutritionStore } from '../store/useNutritionStore';
+ import {
+   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+ } from 'recharts';
+ import { format } from 'date-fns';
+ import {
+   Download, Upload, Save, Trophy, Plus, ShieldAlert, Watch, Activity,
+-  HeartPulse, ShieldCheck, Globe, ChevronUp, ChevronDown, Camera, X, Loader2
++  HeartPulse, ShieldCheck, Globe, ChevronUp, ChevronDown, Camera, X, Loader2,
++  Pill, Trash2
+ } from 'lucide-react';
+ import { useT } from '../hooks/useT';
+ import { useLanguageStore } from '../store/useLanguageStore';
+ import { Capacitor } from '@capacitor/core';
+ import { Share } from '@capacitor/share';
++import db from '../db/db';
+ 
+ // ── Custom Recharts Tooltip ───────────────────────────────────────────────────
+ const ChartTooltip = ({ active, payload, label }: any) => {
+@@ -40,6 +43,7 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
+   const [form, setForm] = useState({ ...profile });
+   const photoRef = useRef<HTMLInputElement>(null);
+   const [photoPreview, setPhotoPreview] = useState<string | null>(profile.profilePhoto || null);
++  const t = useT();
+ 
+   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+@@ -78,7 +82,7 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
+           <X size={20} />
+         </button>
+         <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+-          تعديل الملف الشخصي
++          {t('profile.edit')}
+         </h3>
+ 
+         {/* Photo Upload */}
+@@ -105,31 +109,40 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
+           </div>
+           <input type="file" accept="image/*" ref={photoRef} style={{ display: 'none' }} onChange={handlePhotoChange} />
+           <button onClick={() => photoRef.current?.click()} style={{ color: 'var(--cyan)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+-            <Camera size={14} style={{ display: 'inline', marginRight: 4 }} /> تغيير الصورة
++            <Camera size={14} style={{ display: 'inline', marginRight: 4 }} /> {t('profile.change_photo')}
+           </button>
+         </div>
+ 
+         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+           <div>
+-            <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>الاسم</label>
++            <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('auth.name')}</label>
+             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: '100%' }} />
+           </div>
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+             <div>
+-              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>العمر</label>
++              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('auth.age')}</label>
+               <input type="number" value={form.age} onChange={e => setForm(f => ({ ...f, age: +e.target.value }))} style={{ width: '100%' }} />
+             </div>
+             <div>
+-              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>الوزن (كغ)</label>
++              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('auth.weight')}</label>
+               <input type="number" value={form.weight} onChange={e => setForm(f => ({ ...f, weight: +e.target.value }))} style={{ width: '100%' }} />
+             </div>
+           </div>
+-          <div>
+-            <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>الطول (سم)</label>
+-            <input type="number" value={form.height} onChange={e => setForm(f => ({ ...f, height: +e.target.value }))} style={{ width: '100%' }} />
++          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
++            <div>
++              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('auth.height')}</label>
++              <input type="number" value={form.height} onChange={e => setForm(f => ({ ...f, height: +e.target.value }))} style={{ width: '100%' }} />
++            </div>
++            <div>
++              <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('profile.gender')}</label>
++              <select value={form.gender || 'male'} onChange={e => setForm(f => ({ ...f, gender: e.target.value as 'male' | 'female' }))} style={{ width: '100%' }}>
++                <option value="male">{t('profile.male')}</option>
++                <option value="female">{t('profile.female')}</option>
++              </select>
++            </div>
+           </div>
+           <div>
+-            <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>المستوى</label>
++            <label style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>{t('dash.level')}</label>
+             <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} style={{ width: '100%' }}>
+               {['Beginner', 'Intermediate', 'Advanced', 'Elite'].map(l => <option key={l} value={l}>{l}</option>)}
+             </select>
+@@ -137,9 +150,9 @@ const EditProfileModal = ({ onClose }: { onClose: () => void }) => {
+         </div>
+ 
+         <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+-          <button onClick={onClose} className="btn-secondary" style={{ flex: 1, padding: '0.9rem' }}>إلغاء</button>
++          <button onClick={onClose} className="btn-secondary" style={{ flex: 1, padding: '0.9rem' }}>{t('common.cancel')}</button>
+           <button onClick={handleSave} className="btn-primary" style={{ flex: 1, padding: '0.9rem' }}>
+-            <Save size={16} style={{ display: 'inline', marginRight: 4 }} /> حفظ
++            <Save size={16} style={{ display: 'inline', marginRight: 4 }} /> {t('common.save')}
+           </button>
+         </div>
+       </div>
+@@ -193,6 +206,7 @@ const GarminConnectButton = () => {
+     }
+   };
+ 
++  const t = useT();
+   if (isConnected) {
+     return (
+       <button onClick={() => navigate('/device-live')}
+@@ -202,7 +216,7 @@ const GarminConnectButton = () => {
+           color: '#22c55e', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer'
+         }}>
+         <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+-        {deviceName} · فتح
++        {deviceName} · {t('common.open' as any) || 'Open'}
+       </button>
+     );
+   }
+@@ -218,7 +232,7 @@ const GarminConnectButton = () => {
+           cursor: scanning ? 'not-allowed' : 'pointer'
+         }}>
+         {scanning ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <HeartPulse size={14} />}
+-        {scanning ? 'جاري البحث...' : 'اتصال حقيقي'}
++        {scanning ? t('common.loading') : t('profile.connect')}
+       </button>
+       {error && <div style={{ fontSize: '0.65rem', color: 'var(--magenta)', marginTop: '0.3rem', maxWidth: 200 }}>{error}</div>}
+       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+@@ -226,6 +240,142 @@ const GarminConnectButton = () => {
+   );
+ };
+ 
++// ── Google Fit / Apple Health Sync ─────────────────────────────────────────────
++const HealthSyncButton = () => {
++  const [syncing, setSyncing] = useState(false);
++  const [lastSync, setLastSync] = useState<string | null>(null);
++  const t = useT();
++
++  const handleSync = async () => {
++    setSyncing(true);
++    try {
++      const { syncHealth } = await import('../services/healthService');
++      const data = await syncHealth();
++      setLastSync(new Date().toLocaleTimeString());
++      alert(`${t('profile.sync_health')}: ${data.steps}`);
++    } catch (err) {
++      // ignore or alert
++    } finally {
++      setSyncing(false);
++    }
++  };
++
++  return (
++    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
++      <button onClick={handleSync} disabled={syncing}
++        style={{
++          background: syncing ? 'rgba(34,197,94,0.05)' : 'rgba(34,197,94,0.1)',
++          border: '1px solid rgba(34,197,94,0.3)',
++          borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem',
++          color: '#22c55e', display: 'flex', alignItems: 'center', gap: '0.4rem',
++          cursor: syncing ? 'not-allowed' : 'pointer'
++        }}>
++        {syncing ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Activity size={14} />}
++        {syncing ? t('profile.syncing') : t('profile.sync_health')}
++      </button>
++      {lastSync && <span style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>{t('profile.last_sync')}: {lastSync}</span>}
++    </div>
++  );
++};
++
++// ── BMI Calculator & Nutrition Targets ───────────────────────────────────
++const BMICalculatorSection = () => {
++  const { profile } = useUserStore();
++  const { getTargets } = useNutritionStore();
++  const t = useT();
++
++  const bmi = profile.height > 0
++    ? parseFloat((profile.weight / ((profile.height / 100) ** 2)).toFixed(1))
++    : 0;
++
++  const bmiCategory = bmi < 18.5
++    ? { key: 'profile.underweight', color: 'var(--cyan)', bg: 'rgba(0,240,255,0.08)' }
++    : bmi < 25
++    ? { key: 'profile.normal', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' }
++    : bmi < 30
++    ? { key: 'profile.overweight', color: 'var(--gold)', bg: 'rgba(255,200,0,0.08)' }
++    : { key: 'profile.obese', color: 'var(--magenta)', bg: 'rgba(255,0,85,0.08)' };
++
++  const bmiPct = Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100));
++  const targets = getTargets(profile.weight);
++
++  const macros = [
++    { label: t('dash.calories'), val: targets.calories, unit: 'kcal', color: 'var(--gold)' },
++    { label: t('dash.protein'), val: targets.protein, unit: 'g', color: '#22c55e' },
++    { label: t('nutrition.carbs'), val: targets.carbs, unit: 'g', color: 'var(--cyan)' },
++    { label: t('nutrition.fats'), val: targets.fats, unit: 'g', color: 'var(--magenta)' },
++    { label: t('nutrition.fiber'), val: targets.fiber, unit: 'g', color: '#a78bfa' },
++    { label: t('nutrition.water'), val: (targets.water / 1000).toFixed(1), unit: 'L', color: '#60a5fa' },
++  ];
++
++  const minerals = [
++    { label: t('nutrition.sodium'), val: targets.sodium, unit: 'mg', color: '#fb923c' },
++    { label: t('nutrition.potassium'), val: targets.potassium, unit: 'mg', color: '#a78bfa' },
++    { label: t('nutrition.iron'), val: targets.iron, unit: 'mg', color: '#f87171' },
++    { label: t('nutrition.calcium'), val: targets.calcium, unit: 'mg', color: '#94a3b8' },
++    { label: t('nutrition.vitaminA'), val: targets.vitaminA, unit: 'mcg', color: '#fbbf24' },
++    { label: t('nutrition.vitaminC'), val: targets.vitaminC, unit: 'mg', color: '#f97316' },
++    { label: t('nutrition.vitaminD'), val: targets.vitaminD, unit: 'IU', color: '#fde68a' },
++    { label: t('nutrition.vitaminB12'), val: targets.vitaminB12, unit: 'mcg', color: '#e879f9' },
++  ];
++
++  return (
++    <div className="glass-card animate-fade-up" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
++      <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', letterSpacing: '0.05em', color: 'var(--gold)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++        🧠 {t('profile.bmi_calculator')}
++      </h3>
++
++      {/* BMI Gauge */}
++      <div style={{ padding: '1rem', background: bmiCategory.bg, borderRadius: 10, border: `1px solid ${bmiCategory.color}30`, marginBottom: '1rem' }}>
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
++          <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{t('profile.bmi')}</span>
++          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.6rem', fontWeight: 800, color: bmiCategory.color }}>
++            {bmi}
++          </span>
++          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: bmiCategory.color, padding: '0.2rem 0.6rem', borderRadius: 6, background: `${bmiCategory.color}20` }}>
++            {t(bmiCategory.key as any)}
++          </span>
++        </div>
++        {/* BMI Progress bar */}
++        <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', position: 'relative' }}>
++          <div style={{
++            position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 999,
++            width: `${bmiPct}%`,
++            background: `linear-gradient(90deg, var(--cyan), ${bmiCategory.color})`,
++            transition: 'width 0.8s var(--ease-out)'
++          }} />
++        </div>
++        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>
++          <span>10</span><span>18.5</span><span>25</span><span>30</span><span>40</span>
++        </div>
++      </div>
++
++      {/* Macro Targets */}
++      <div className="section-label" style={{ marginBottom: '0.5rem' }}>{t('profile.macro_targets')}</div>
++      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '1rem' }}>
++        {macros.map(m => (
++          <div key={m.label} style={{ textAlign: 'center', background: 'rgba(0,0,0,0.25)', borderRadius: 8, padding: '0.6rem 0.4rem', border: `1px solid ${m.color}30` }}>
++            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1rem', color: m.color }}>{m.val}</div>
++            <div style={{ fontSize: '0.55rem', color: m.color, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{m.unit}</div>
++            <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>{m.label}</div>
++          </div>
++        ))}
++      </div>
++
++      {/* Mineral & Vitamin Targets */}
++      <div className="section-label" style={{ marginBottom: '0.5rem' }}>{t('profile.micro_targets')}</div>
++      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
++        {minerals.map(m => (
++          <div key={m.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.45rem 0.6rem', background: 'rgba(0,0,0,0.2)', borderRadius: 6, borderLeft: `3px solid ${m.color}` }}>
++            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{m.label}</span>
++            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: m.color }}>{m.val}<span style={{ fontSize: '0.6rem', opacity: 0.7 }}>{m.unit}</span></span>
++          </div>
++        ))}
++      </div>
++    </div>
++  );
++};
++
+ // ── Trophy Room ───────────────────────────────────────────────────────────────
+ const TrophyRoom = () => {
+   const { badges, xp, level } = useGamificationStore();
+@@ -401,20 +551,50 @@ const Profile = () => {
+   const [tab, setTab] = useState<'stats' | 'trophies' | 'history'>('trophies');
+   const [showEditModal, setShowEditModal] = useState(false);
+ 
+-  const [injuries, setInjuries] = useState([
+-    { id: '1', part: 'Right Shoulder', severity: 4, status: 'Recovering' },
+-    { id: '2', part: 'Lower Back', severity: 2, status: 'Active' }
+-  ]);
+   const [showAddInjury, setShowAddInjury] = useState(false);
+   const [newInjury, setNewInjury] = useState({ part: '', severity: 5 });
+ 
+-  const handleAddInjury = () => {
++  const [showAddSupplement, setShowAddSupplement] = useState(false);
++  const [newSupplement, setNewSupplement] = useState({ name: '', dose: '', timing: '', dailyDoses: 1 });
++
++  const handleAddInjury = async () => {
+     if (!newInjury.part) return;
+-    setInjuries([...injuries, { id: Date.now().toString(), part: newInjury.part, severity: newInjury.severity, status: 'Active' }]);
++    await userStore.addInjury({
++      bodyPart: newInjury.part,
++      severity: newInjury.severity,
++      status: 'Active',
++      notes: ''
++    });
+     setShowAddInjury(false);
+     setNewInjury({ part: '', severity: 5 });
+   };
+ 
++  const handleDeleteInjury = async (id: string) => {
++    if (confirm('هل أنت متأكد من حذف هذه الإصابة؟')) {
++      await userStore.deleteInjury(id);
++    }
++  };
++
++  const handleAddSupplement = async () => {
++    if (!newSupplement.name) return;
++    const dosesArray = Array(Number(newSupplement.dailyDoses) || 1).fill(false);
++    await userStore.addSupplement({
++      id: Math.random().toString(36).substring(2, 9),
++      name: newSupplement.name,
++      dose: newSupplement.dose || '1 tab',
++      timing: newSupplement.timing || 'Anytime',
++      taken: dosesArray
++    });
++    setShowAddSupplement(false);
++    setNewSupplement({ name: '', dose: '', timing: '', dailyDoses: 1 });
++  };
++
++  const handleDeleteSupplement = async (id: string) => {
++    if (confirm('هل أنت متأكد من حذف هذا المكمل الغذائي؟')) {
++      await userStore.deleteSupplement(id);
++    }
++  };
++
+   const handleExport = async () => {
+     const data = {
+       user: JSON.parse(localStorage.getItem('omnibody-user-storage') || '{}').state,
+@@ -529,7 +709,7 @@ const Profile = () => {
+                 onClick={() => setShowEditModal(true)}
+                 style={{ color: 'var(--cyan)', fontSize: '0.7rem', padding: '0.15rem 0.5rem', border: '1px solid rgba(0,240,255,0.3)', borderRadius: 6, background: 'rgba(0,240,255,0.06)' }}
+               >
+-                تعديل
++                {t('profile.edit')}
+               </button>
+             </div>
+             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--cyan)', marginTop: '0.15rem' }}>
+@@ -556,6 +736,9 @@ const Profile = () => {
+         </div>
+       </div>
+ 
++      {/* BMI Calculator & Nutrition Targets */}
++      <BMICalculatorSection />
++
+       {/* Wearables Hub */}
+       <div className="glass-card animate-fade-up" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+         <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', letterSpacing: '0.05em', color: 'var(--cyan)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+@@ -563,8 +746,8 @@ const Profile = () => {
+         </h3>
+         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
+-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={16} /> {t('profile.apple_health')}</div>
+-            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>قريباً</span>
++            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={16} /> {t('profile.apple_health')} / Google Fit</div>
++            <HealthSyncButton />
+           </div>
+           {/* Garmin — Real BLE */}
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
+@@ -573,7 +756,7 @@ const Profile = () => {
+           </div>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShieldCheck size={16} /> {t('profile.whoop')}</div>
+-            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>قريباً</span>
++            <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{t('common.soon' as any) || 'Coming soon'}</span>
+           </div>
+         </div>
+       </div>
+@@ -589,11 +772,11 @@ const Profile = () => {
+ 
+         {showAddInjury && (
+           <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, marginBottom: '1rem' }}>
+-            <input type="text" placeholder={t('profile.body_part')} value={newInjury.part}
++            <input type="text" placeholder={t('profile.body_part') || "عضو الجسم المصاب"} value={newInjury.part}
+               onChange={e => setNewInjury({ ...newInjury, part: e.target.value })}
+               style={{ width: '100%', marginBottom: '0.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--magenta)', color: '#fff', borderRadius: 4 }} />
+             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+-              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{t('profile.severity')}: {newInjury.severity}/10</span>
++              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{t('profile.severity') || "شدة الألم"}: {newInjury.severity}/10</span>
+               <input type="range" min="1" max="10" value={newInjury.severity} onChange={e => setNewInjury({ ...newInjury, severity: parseInt(e.target.value) })} style={{ flex: 1 }} />
+             </div>
+             <button className="btn-primary" onClick={handleAddInjury} style={{ width: '100%', padding: '0.5rem', fontSize: '0.8rem' }}>{t('profile.log_injury')}</button>
+@@ -601,17 +784,76 @@ const Profile = () => {
+         )}
+ 
+         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+-          {injuries.length === 0
++          {userStore.injuries.length === 0
+             ? <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>{t('profile.no_injuries')}</div>
+-            : injuries.map(inj => (
++            : userStore.injuries.map(inj => (
+               <div key={inj.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, borderLeft: `3px solid ${inj.status === 'Active' ? 'var(--magenta)' : 'var(--color-warning)'}` }}>
+                 <div>
+-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{inj.part}</div>
++                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{inj.bodyPart}</div>
+                   <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{t('profile.severity')}: {inj.severity}/10</div>
+                 </div>
+-                <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+-                  onClick={() => setInjuries(injuries.map(i => i.id === inj.id ? { ...i, status: i.status === 'Active' ? 'Recovering' : 'Active' } : i))}>
+-                  {inj.status === 'Active' ? t('profile.active') : t('profile.recovering')}
++                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++                  <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
++                    onClick={async () => {
++                      const newStatus = inj.status === 'Active' ? 'Recovering' : 'Active';
++                      await db.injuries.put({ ...inj, status: newStatus });
++                      await userStore.loadUser(userStore.activeUserId || 'default_user');
++                    }}>
++                    {inj.status === 'Active' ? t('profile.active') : t('profile.recovering')}
++                  </button>
++                  <button className="btn-secondary" style={{ padding: '0.3rem', color: 'var(--magenta)', border: '1px solid rgba(255,0,85,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
++                    onClick={() => handleDeleteInjury(inj.id)}>
++                    <Trash2 size={13} />
++                  </button>
++                </div>
++              </div>
++            ))
++          }
++        </div>
++      </div>
++
++      {/* Supplements Management */}
++      <div className="glass-card animate-fade-up" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
++          <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', letterSpacing: '0.05em', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
++            <Pill size={18} /> {t('profile.supplements') || "المكملات الغذائية"}
++          </h3>
++          <button onClick={() => setShowAddSupplement(!showAddSupplement)} style={{ background: 'none', border: 'none', color: 'var(--cyan)' }}><Plus size={18} /></button>
++        </div>
++
++        {showAddSupplement && (
++          <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, marginBottom: '1rem' }}>
++            <input type="text" placeholder="اسم المكمل (مثال: Creatine)" value={newSupplement.name}
++              onChange={e => setNewSupplement({ ...newSupplement, name: e.target.value })}
++              style={{ width: '100%', marginBottom: '0.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--gold)', color: '#fff', borderRadius: 4 }} />
++            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
++              <input type="text" placeholder="الجرعة (مثال: 5g)" value={newSupplement.dose}
++                onChange={e => setNewSupplement({ ...newSupplement, dose: e.target.value })}
++                style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--gold)', color: '#fff', borderRadius: 4 }} />
++              <input type="text" placeholder="الوقت (مثال: Morning)" value={newSupplement.timing}
++                onChange={e => setNewSupplement({ ...newSupplement, timing: e.target.value })}
++                style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--gold)', color: '#fff', borderRadius: 4 }} />
++            </div>
++            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
++              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>عدد الجرعات اليومية: {newSupplement.dailyDoses}</span>
++              <input type="range" min="1" max="5" value={newSupplement.dailyDoses} onChange={e => setNewSupplement({ ...newSupplement, dailyDoses: parseInt(e.target.value) })} style={{ flex: 1 }} />
++            </div>
++            <button className="btn-primary" onClick={handleAddSupplement} style={{ width: '100%', padding: '0.5rem', fontSize: '0.8rem' }}>إضافة مكمل</button>
++          </div>
++        )}
++
++        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
++          {userStore.supplements.length === 0
++            ? <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>لا يوجد مكملات مضافة</div>
++            : userStore.supplements.map(sup => (
++              <div key={sup.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: 8, borderLeft: '3px solid var(--gold)' }}>
++                <div>
++                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{sup.name}</div>
++                  <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{sup.dose} · {sup.timing}</div>
++                </div>
++                <button className="btn-secondary" style={{ padding: '0.3rem', color: 'var(--magenta)', border: '1px solid rgba(255,0,85,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
++                  onClick={() => handleDeleteSupplement(sup.id)}>
++                  <Trash2 size={13} />
+                 </button>
+               </div>
+             ))
+diff --git a/src/pages/Workout.tsx b/src/pages/Workout.tsx
+index 70393b3..d0d82d8 100644
+--- a/src/pages/Workout.tsx
++++ b/src/pages/Workout.tsx
+@@ -8,6 +8,7 @@ import {
+   Play, Check, ChevronDown, ChevronUp, X, 
+   Mic, MicOff, Edit3, ArrowLeftRight, Star, History, Plus, ChevronRight
+ } from 'lucide-react';
++import { format } from 'date-fns';
+ import { useT } from '../hooks/useT';
+ 
+ // ── Circular Countdown Timer ──────────────────────────────────────────────────
+@@ -465,6 +466,10 @@ const WorkoutPlayer = () => {
+   const [modalType, setModalType] = useState<'notes' | 'swap' | 'plate' | 'history' | 'create' | 'add' | null>(null);
+   const [modalEx, setModalEx] = useState<any>(null);
+   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
++  const [activeExIdx, setActiveExIdx] = useState(0);
++  const [slideDir, setSlideDir] = useState<'left' | 'right'>('right');
++  const [slideKey, setSlideKey] = useState(0);
++  const touchStartX = useRef(0);
+   const removeExercise = useWorkoutStore(s => s.removeExerciseFromSession);
+ 
+   useEffect(() => {
+@@ -478,6 +483,28 @@ const WorkoutPlayer = () => {
+   if (!activeSession) return null;
+ 
+   const allEx = getAllExercises();
++  const exCount = activeSession.exercises.length;
++  const safeIdx = Math.min(activeExIdx, Math.max(0, exCount - 1));
++
++  const goPrev = () => {
++    if (safeIdx <= 0) return;
++    setSlideDir('right');
++    setSlideKey(k => k + 1);
++    setActiveExIdx(safeIdx - 1);
++  };
++  const goNext = () => {
++    if (safeIdx >= exCount - 1) return;
++    setSlideDir('left');
++    setSlideKey(k => k + 1);
++    setActiveExIdx(safeIdx + 1);
++  };
++
++  const handleTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
++  const handleTouchEnd = (e: React.TouchEvent) => {
++    const dx = e.changedTouches[0].clientX - touchStartX.current;
++    if (dx < -50) goNext();
++    else if (dx > 50) goPrev();
++  };
+ 
+   if (activeSession.phase === 'warmup') {
+     const items = [
+@@ -539,13 +566,45 @@ const WorkoutPlayer = () => {
+           {t('workout.open_calc')}
+         </button>
+ 
++        {/* Exercise navigation: prev / dots / next */}
++        {exCount > 1 && (
++          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', gap: '0.5rem' }}>
++            <button onClick={goPrev} disabled={safeIdx === 0}
++              style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid rgba(0,240,255,0.2)', background: 'rgba(0,240,255,0.06)', color: safeIdx === 0 ? 'var(--color-text-muted)' : 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: safeIdx === 0 ? 'not-allowed' : 'pointer', opacity: safeIdx === 0 ? 0.4 : 1 }}>
++              <ChevronRight size={18} style={{ transform: 'rotate(180deg)' }} />
++            </button>
++            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
++              {activeSession.exercises.map((exd, i) => {
++                const done = exd.sets.every(s => s.completed);
++                return (
++                  <button key={i} onClick={() => { setSlideDir(i > safeIdx ? 'left' : 'right'); setSlideKey(k => k+1); setActiveExIdx(i); }}
++                    style={{ width: i === safeIdx ? 24 : 8, height: 8, borderRadius: 4, background: done ? 'var(--color-success)' : i === safeIdx ? 'var(--cyan)' : 'rgba(0,240,255,0.2)', transition: 'all 0.3s', border: 'none', padding: 0, cursor: 'pointer' }}
++                  />
++                );
++              })}
++            </div>
++            <button onClick={goNext} disabled={safeIdx >= exCount - 1}
++              style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid rgba(0,240,255,0.2)', background: 'rgba(0,240,255,0.06)', color: safeIdx >= exCount - 1 ? 'var(--color-text-muted)' : 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: safeIdx >= exCount - 1 ? 'not-allowed' : 'pointer', opacity: safeIdx >= exCount - 1 ? 0.4 : 1 }}>
++              <ChevronRight size={18} />
++            </button>
++          </div>
++        )}
++
++        {/* Active exercise — focused card with swipe support */}
++        <div
++          onTouchStart={handleTouchStart}
++          onTouchEnd={handleTouchEnd}
++          style={{ overflow: 'hidden' }}
++        >
+         {activeSession.exercises.map((ex, idx) => {
++          if (idx !== safeIdx) return null;
+           const def = allEx.find(e => e.id === ex.exerciseId) || allEx[0];
+           const isCollapsed = collapsed[ex.exerciseId];
+           const completedSets = ex.sets.filter(s => s.completed).length;
+           const exName = useLanguageStore.getState().lang === 'ar' && def.nameAr ? def.nameAr : def.name;
++          const slideClass = slideDir === 'left' ? 'exercise-slide-in-left' : 'exercise-slide-in-right';
+           return (
+-            <div key={ex.exerciseId} className="glass-card animate-fade-up" style={{ marginBottom: '1rem', animationDelay: `${idx * 0.05}s` }}>
++            <div key={`${ex.exerciseId}-${slideKey}`} className={`glass-card ${slideClass}`} style={{ marginBottom: '1rem' }}>
+               <div style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: isCollapsed ? 'none' : '1px solid rgba(0,240,255,0.08)' }}>
+                 <div style={{ flex: 1 }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+@@ -553,7 +612,7 @@ const WorkoutPlayer = () => {
+                     {def.isRehab && <span className="tag-rehab">REHAB</span>}
+                   </div>
+                   <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
+-                    {completedSets}/{ex.sets.length} sets completed
++                    {completedSets}/{ex.sets.length} sets · Ex {safeIdx + 1}/{exCount}
+                   </div>
+                 </div>
+                 <div style={{ display: 'flex', gap: '0.2rem' }}>
+@@ -595,6 +654,28 @@ const WorkoutPlayer = () => {
+             </div>
+           );
+         })}
++        </div>
++
++        {/* All exercises mini-list (collapsed overview) */}
++        {exCount > 1 && (
++          <div style={{ marginTop: '0.5rem', marginBottom: '1rem' }}>
++            <div className="section-label" style={{ marginBottom: '0.5rem' }}>All Exercises</div>
++            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
++              {activeSession.exercises.map((ex, i) => {
++                const def = allEx.find(e => e.id === ex.exerciseId) || allEx[0];
++                const done = ex.sets.every(s => s.completed);
++                const exName = useLanguageStore.getState().lang === 'ar' && def.nameAr ? def.nameAr : def.name;
++                return (
++                  <button key={ex.exerciseId} onClick={() => { setSlideDir(i > safeIdx ? 'left' : 'right'); setSlideKey(k => k+1); setActiveExIdx(i); }}
++                    style={{ textAlign: 'start', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)', background: i === safeIdx ? 'rgba(0,240,255,0.1)' : 'rgba(255,255,255,0.02)', border: `1px solid ${i === safeIdx ? 'rgba(0,240,255,0.3)' : 'rgba(255,255,255,0.05)'}`, color: i === safeIdx ? 'var(--cyan)' : done ? 'var(--color-success)' : 'var(--color-text-muted)', fontSize: '0.8rem', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
++                    <span>{i + 1}. {exName}</span>
++                    {done && <Check size={14} />}
++                  </button>
++                );
++              })}
++            </div>
++          </div>
++        )}
+ 
+         <button onClick={() => setModalType('add')} className="btn-secondary" style={{ width: '100%', padding: '1rem', marginTop: '1rem', borderStyle: 'dashed' }}>
+           + {t('workout.add_exercise') || 'Add Exercise'}
+@@ -614,18 +695,23 @@ const Workout = () => {
+   const scheduledSessions = useWorkoutStore(s => s.scheduledSessions);
+   const removeScheduledSession = useWorkoutStore(s => s.removeScheduledSession);
+   const getAllTemplates = useExerciseStore(s => s.getAllTemplates);
++  const history = useWorkoutStore(s => s.history);
++  const updateHistoricalSession = useWorkoutStore(s => s.updateHistoricalSession);
++  const getAllExercises = useExerciseStore(s => s.getAllExercises);
+   const [modalType, setModalType] = useState<'create' | null>(null);
++  const [expandedHistory, setExpandedHistory] = useState<Record<string, boolean>>({});
+ 
+   if (activeSession) return <WorkoutPlayer />;
+ 
+   const schedules = getAllTemplates();
++  const allEx = getAllExercises();
+   
+   const today = new Date();
+   const dStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
+   const todaysPlans = scheduledSessions.filter(s => s.date === dStr);
+ 
+   return (
+-    <div className="page">
++    <div className="page" style={{ paddingBottom: '7rem' }}>
+       {modalType === 'create' && <CustomExerciseManager onClose={() => setModalType(null)} />}
+       <header style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+         <div>
+@@ -681,6 +767,112 @@ const Workout = () => {
+           </div>
+         ))}
+       </div>
++
++      {/* Historical Sessions Section */}
++      <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '2.5rem', marginBottom: '2rem' }}>
++        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
++          <History size={18} className="neon-magenta" />
++          سجل التدريب والزيادات الدورية
++        </h2>
++        
++        {history.length === 0 ? (
++          <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: 12, textAlign: 'center' }}>
++            لا يوجد تمارين مسجلة سابقاً. ابدأ تمرينك الأول الآن!
++          </div>
++        ) : (
++          [...history].reverse().map((session) => (
++            <div key={session.sessionId} className="glass-card animate-fade-up" style={{ padding: '1.25rem', borderLeft: '3px solid var(--magenta)', background: 'linear-gradient(135deg, rgba(255,0,110,0.02) 0%, rgba(0,0,0,0) 100%)' }}>
++              {/* Header */}
++              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
++                <div>
++                  <h4 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#fff' }}>{session.type}</h4>
++                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.25rem' }}>
++                    {format(new Date(session.date), 'eeee, MMMM d, yyyy')} • الحجم الكلي: <span className="neon-magenta" style={{ fontWeight: 700 }}>{session.totalVolume.toLocaleString()} كجم</span>
++                  </div>
++                </div>
++                <button onClick={() => setExpandedHistory(e => ({ ...e, [session.sessionId]: !e[session.sessionId] }))} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', borderRadius: 8 }}>
++                  {expandedHistory[session.sessionId] ? 'إخفاء التفاصيل' : 'عرض وتعديل'}
++                </button>
++              </div>
++
++              {/* Collapsible exercises list */}
++              {expandedHistory[session.sessionId] && (
++                <div style={{ marginTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
++                  {session.exercises.map((ex) => {
++                    const def = allEx.find(e => e.id === ex.exerciseId);
++                    const exName = useLanguageStore.getState().lang === 'ar' && def?.nameAr ? def.nameAr : (def?.name || ex.exerciseId);
++                    return (
++                      <div key={ex.exerciseId} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.85rem', borderRadius: 12, border: '1px solid rgba(255,255,255,0.04)' }}>
++                        <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.65rem', color: 'var(--cyan)' }}>{exName}</div>
++                        
++                        {/* Sets detail */}
++                        <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 1fr 1fr', gap: '0.5rem', textAlign: 'center', fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
++                          <div>مجموعة</div><div>وزن (كجم)</div><div>تكرار</div><div>RPE</div>
++                        </div>
++                        {ex.sets.map((set, sIdx) => (
++                          <div key={sIdx} style={{ display: 'grid', gridTemplateColumns: '50px 1fr 1fr 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.4rem' }}>
++                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>{set.setNumber}</div>
++                            <input
++                              type="number"
++                              value={set.weight || ''}
++                              onChange={(e) => {
++                                const val = parseFloat(e.target.value) || 0;
++                                const updatedExercises = session.exercises.map(we => {
++                                  if (we.exerciseId !== ex.exerciseId) return we;
++                                  const updatedSets = we.sets.map(ws => ws.setNumber === set.setNumber ? { ...ws, weight: val } : ws);
++                                  return { ...we, sets: updatedSets };
++                                });
++                                // Recalculate volume
++                                const newVolume = updatedExercises.reduce((sum, we) => {
++                                  return sum + we.sets.filter(s => s.completed).reduce((sSum, s) => sSum + (s.weight * s.reps), 0);
++                                }, 0);
++                                updateHistoricalSession(session.sessionId, { exercises: updatedExercises, totalVolume: newVolume });
++                              }}
++                              style={{ padding: '0.35rem', fontSize: '0.85rem', textAlign: 'center', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,240,255,0.15)', color: '#fff', borderRadius: 6 }}
++                            />
++                            <input
++                              type="number"
++                              value={set.reps || ''}
++                              onChange={(e) => {
++                                const val = parseInt(e.target.value) || 0;
++                                const updatedExercises = session.exercises.map(we => {
++                                  if (we.exerciseId !== ex.exerciseId) return we;
++                                  const updatedSets = we.sets.map(ws => ws.setNumber === set.setNumber ? { ...ws, reps: val } : ws);
++                                  return { ...we, sets: updatedSets };
++                                });
++                                // Recalculate volume
++                                const newVolume = updatedExercises.reduce((sum, we) => {
++                                  return sum + we.sets.filter(s => s.completed).reduce((sSum, s) => sSum + (s.weight * s.reps), 0);
++                                }, 0);
++                                updateHistoricalSession(session.sessionId, { exercises: updatedExercises, totalVolume: newVolume });
++                              }}
++                              style={{ padding: '0.35rem', fontSize: '0.85rem', textAlign: 'center', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,240,255,0.15)', color: '#fff', borderRadius: 6 }}
++                            />
++                            <input
++                              type="number"
++                              value={set.rpe || ''}
++                              onChange={(e) => {
++                                const val = parseInt(e.target.value) || 0;
++                                const updatedExercises = session.exercises.map(we => {
++                                  if (we.exerciseId !== ex.exerciseId) return we;
++                                  const updatedSets = we.sets.map(ws => ws.setNumber === set.setNumber ? { ...ws, rpe: val } : ws);
++                                  return { ...we, sets: updatedSets };
++                                });
++                                updateHistoricalSession(session.sessionId, { exercises: updatedExercises });
++                              }}
++                              style={{ padding: '0.35rem', fontSize: '0.85rem', textAlign: 'center', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,240,255,0.15)', color: '#fff', borderRadius: 6 }}
++                            />
++                          </div>
++                        ))}
++                      </div>
++                    );
++                  })}
++                </div>
++              )}
++            </div>
++          ))
++        )}
++      </div>
+     </div>
+   );
+ };
+diff --git a/src/services/healthService.ts b/src/services/healthService.ts
+new file mode 100644
+index 0000000..0d9be12
+--- /dev/null
++++ b/src/services/healthService.ts
+@@ -0,0 +1,79 @@
++import { Capacitor } from '@capacitor/core';
++
++export interface HealthData {
++  steps: number;
++  heartRate: number;
++  calories: number;
++  distanceKm: number;
++}
++
++const EMPTY_HEALTH: HealthData = { steps: 0, heartRate: 0, calories: 0, distanceKm: 0 };
++
++/**
++ * Sync health data from Google Fit (Android) or Apple Health (iOS).
++ * Uses @capacitor-community/health plugin when available.
++ */
++export async function syncHealth(): Promise<HealthData> {
++  if (!Capacitor.isNativePlatform()) {
++    console.info('[HealthService] Not on native platform — skipping sync');
++    return EMPTY_HEALTH;
++  }
++
++  try {
++    // Dynamically import to avoid crashing on web
++    const { Health } = await import('@awesome-cordova-plugins/health');
++
++    // Request permissions
++    await Health.requestAuthorization([
++      { read: ['steps'] },
++      { read: ['calories'] },
++      { read: ['distance'] },
++      { read: ['heart_rate'] },
++    ]);
++
++    const endDate = new Date();
++    const startDate = new Date();
++    startDate.setHours(0, 0, 0, 0); // Start of today
++
++    const query = { startDate, endDate, dataType: '' };
++
++    // Query each data type
++    const [stepsData, caloriesData, distanceData, hrData] = await Promise.all([
++      Health.query({ ...query, dataType: 'steps' }).catch(() => []),
++      Health.query({ ...query, dataType: 'calories' }).catch(() => []),
++      Health.query({ ...query, dataType: 'distance' }).catch(() => []),
++      Health.query({ ...query, dataType: 'heart_rate' }).catch(() => []),
++    ]);
++
++    const sumValues = (data: any[]) =>
++      data.reduce((acc, d) => acc + (d.value || 0), 0);
++
++    const steps = Math.round(sumValues(stepsData));
++    const calories = Math.round(sumValues(caloriesData));
++    const distanceKm = parseFloat((sumValues(distanceData) / 1000).toFixed(2));
++
++    // Heart rate: use the latest reading
++    const hrReadings = hrData as any[];
++    const heartRate = hrReadings.length > 0
++      ? Math.round(hrReadings[hrReadings.length - 1]?.value || 0)
++      : 0;
++
++    return { steps, heartRate, calories, distanceKm };
++  } catch (err) {
++    console.warn('[HealthService] Health sync failed:', err);
++    return EMPTY_HEALTH;
++  }
++}
++
++/**
++ * Check if health permissions are granted.
++ */
++export async function checkHealthPermissions(): Promise<boolean> {
++  if (!Capacitor.isNativePlatform()) return false;
++  try {
++    const { Health } = await import('@awesome-cordova-plugins/health');
++    return await Health.isAvailable();
++  } catch {
++    return false;
++  }
++}
+diff --git a/src/services/notificationService.ts b/src/services/notificationService.ts
+new file mode 100644
+index 0000000..6f5a1b7
+--- /dev/null
++++ b/src/services/notificationService.ts
+@@ -0,0 +1,85 @@
++import { LocalNotifications } from '@capacitor/local-notifications';
++import { Capacitor } from '@capacitor/core';
++
++const WATER_NOTIFICATION_CHANNEL = 'water_reminders';
++const WATER_NOTIF_IDS = Array.from({ length: 16 }, (_, i) => 1000 + i);
++
++export async function requestNotificationPermission(): Promise<boolean> {
++  if (!Capacitor.isNativePlatform()) return false;
++  try {
++    const { display } = await LocalNotifications.requestPermissions();
++    return display === 'granted';
++  } catch {
++    return false;
++  }
++}
++
++export async function scheduleWaterReminders(remainingMl: number): Promise<void> {
++  if (!Capacitor.isNativePlatform()) return;
++
++  try {
++    // Cancel existing water reminders first
++    await cancelWaterReminders();
++
++    const now = new Date();
++    const startHour = 7;  // 7 AM
++    const endHour = 22;   // 10 PM
++
++    const notifications = [];
++    let notifIndex = 0;
++
++    for (let hour = startHour; hour <= endHour; hour++) {
++      const scheduledTime = new Date();
++      scheduledTime.setHours(hour, 0, 0, 0);
++
++      // Skip hours that have already passed today
++      if (scheduledTime <= now) continue;
++
++      if (notifIndex >= 16) break;
++
++      notifications.push({
++        id: WATER_NOTIF_IDS[notifIndex],
++        title: '💧 اشرب ماء!',
++        body: `هدفك ${remainingMl}ml باقي. جسمك محتاج ماء دلوقتي! 🥤`,
++        schedule: { at: scheduledTime },
++        channelId: WATER_NOTIFICATION_CHANNEL,
++        smallIcon: 'ic_stat_water',
++        actionTypeId: '',
++        extra: { type: 'water_reminder' },
++      });
++
++      notifIndex++;
++    }
++
++    if (notifications.length > 0) {
++      await LocalNotifications.schedule({ notifications });
++    }
++  } catch (err) {
++    console.warn('Failed to schedule water reminders:', err);
++  }
++}
++
++export async function cancelWaterReminders(): Promise<void> {
++  if (!Capacitor.isNativePlatform()) return;
++  try {
++    const pending = await LocalNotifications.getPending();
++    const waterNotifs = pending.notifications.filter(n =>
++      WATER_NOTIF_IDS.includes(n.id)
++    );
++    if (waterNotifs.length > 0) {
++      await LocalNotifications.cancel({ notifications: waterNotifs });
++    }
++  } catch (err) {
++    console.warn('Failed to cancel water reminders:', err);
++  }
++}
++
++export async function isNotificationPermissionGranted(): Promise<boolean> {
++  if (!Capacitor.isNativePlatform()) return false;
++  try {
++    const { display } = await LocalNotifications.checkPermissions();
++    return display === 'granted';
++  } catch {
++    return false;
++  }
++}
+diff --git a/src/store/useNutritionStore.ts b/src/store/useNutritionStore.ts
+index 82a3d45..988aada 100644
+--- a/src/store/useNutritionStore.ts
++++ b/src/store/useNutritionStore.ts
+@@ -3,6 +3,7 @@ import { startOfDay } from 'date-fns';
+ import db from '../db/db';
+ import { useUserStore } from './useUserStore';
+ import { FOOD_DATABASE } from '../data/foods';
++import { scheduleWaterReminders, cancelWaterReminders } from '../services/notificationService';
+ 
+ export interface LoggedFood {
+   foodId: string;
+@@ -41,7 +42,11 @@ export interface NutritionDay {
+ 
+ interface NutritionState {
+   history: Record<number, NutritionDay>; // Keyed by start of day timestamp
+-  getTargets: (weight: number) => { calories: number; protein: number; carbs: number; fats: number; fiber: number; water: number };
++  getTargets: (weight?: number) => { 
++    calories: number; protein: number; carbs: number; fats: number; fiber: number; water: number;
++    sodium: number; potassium: number; iron: number; calcium: number;
++    vitaminA: number; vitaminC: number; vitaminD: number; vitaminB12: number;
++  };
+   loadUserHistory: (userId: string) => Promise<void>;
+   addFood: (date: number, mealType: string, food: LoggedFood) => Promise<void>;
+   removeFood: (date: number, mealId: string, foodId: string) => Promise<void>;
+@@ -52,6 +57,7 @@ interface NutritionState {
+   resetSupplements: (date: number) => Promise<void>;
+   resetDay: (date: number) => Promise<void>;
+   getTodayLog: () => NutritionDay;
++  getLogForDate: (date: number) => NutritionDay;
+ }
+ 
+ const generateId = () => Math.random().toString(36).substring(2, 9);
+@@ -71,14 +77,65 @@ export const useNutritionStore = create<NutritionState>()(
+   (set, get) => ({
+     history: {},
+ 
+-    getTargets: (weight: number) => ({
+-      calories: 3200,
+-      protein: Math.round(weight * 2.05), // ~160g for 78kg
+-      carbs: 400,
+-      fats: 89,
+-      fiber: 30,
+-      water: 3500
+-    }),
++    getTargets: (weightParam?: number) => {
++      const profile = useUserStore.getState().profile;
++      const weight = weightParam || profile.weight || 78;
++      const height = profile.height || 177;
++      const age = profile.age || 22;
++      const goals = profile.goals || [];
++      const activityLevel = profile.activityLevel || 'Moderate';
++
++      const isFemale = goals.some(g => g.toLowerCase().includes('female')) || (profile as any).gender === 'female';
++      const s = isFemale ? -161 : 5;
++      const bmr = 10 * weight + 6.25 * height - 5 * age + s;
++
++      const multiplierMap: Record<string, number> = {
++        'Sedentary': 1.2,
++        'Light': 1.375,
++        'Moderate': 1.55,
++        'Active': 1.725,
++      };
++      const multiplier = multiplierMap[activityLevel] ?? 1.55;
++
++      const tdee = bmr * multiplier;
++
++      let calories = tdee;
++      if (goals.some(g => g.toLowerCase().includes('loss') || g.toLowerCase().includes('cut') || g.toLowerCase().includes('aesthetics'))) {
++        calories = tdee - 500;
++      } else if (goals.some(g => g.toLowerCase().includes('strength') || g.toLowerCase().includes('bulk') || g.toLowerCase().includes('mass') || g.toLowerCase().includes('athletic'))) {
++        calories = tdee + 300;
++      }
++
++      calories = Math.round(calories);
++
++      const proteinG = Math.round(weight * 2.0);
++      const proteinKcal = proteinG * 4;
++      const fatsG = Math.round(weight * 1.0);
++      const fatsKcal = fatsG * 9;
++      const remainingKcal = calories - proteinKcal - fatsKcal;
++      const carbsG = Math.round(Math.max(50, remainingKcal / 4));
++
++      const fiberG = 30;
++      const waterMl = Math.round(weight * 35);
++
++      return {
++        calories,
++        protein: proteinG,
++        carbs: carbsG,
++        fats: fatsG,
++        fiber: fiberG,
++        water: waterMl,
++        sodium: 2300,        // mg (general upper limit / target)
++        potassium: 3400,     // mg
++        iron: isFemale ? 18 : 8, // mg
++        calcium: 1000,       // mg
++        vitaminA: isFemale ? 700 : 900, // mcg
++        vitaminC: isFemale ? 75 : 90,   // mg
++        vitaminD: 600,       // IU
++        vitaminB12: 2.4      // mcg
++      };
++    },
++
+ 
+     loadUserHistory: async (userId: string) => {
+       const logs = await db.daily_logs.where('userId').equals(userId).toArray();
+@@ -144,26 +201,33 @@ export const useNutritionStore = create<NutritionState>()(
+ 
+     getTodayLog: () => {
+       const today = startOfDay(new Date()).getTime();
++      return get().getLogForDate(today);
++    },
++
++    getLogForDate: (date: number) => {
++      const targetDate = startOfDay(new Date(date)).getTime();
+       const history = get().history;
+-      if (!history[today]) {
++      if (!history[targetDate]) {
+         return {
+-          date: today,
++          date: targetDate,
+           waterMl: 0,
+           meals: [
+             { id: generateId(), type: 'Breakfast', foods: [] },
+             { id: generateId(), type: 'Lunch', foods: [] },
+             { id: generateId(), type: 'Dinner', foods: [] },
+-            { id: generateId(), type: 'Snacks', foods: [] }
++            { id: generateId(), type: 'Snacks', foods: [] },
++            { id: generateId(), type: 'Pre-workout', foods: [] },
++            { id: generateId(), type: 'Post-workout', foods: [] }
+           ],
+           supplementsTaken: {}
+         };
+       }
+-      return history[today];
++      return history[targetDate];
+     },
+ 
+     addFood: async (date, mealType, food) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       let meal = dayLog.meals.find(m => m.type === mealType);
+       if (!meal) {
+@@ -203,7 +267,7 @@ export const useNutritionStore = create<NutritionState>()(
+ 
+     addWater: async (date, amount) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       const newLog = { ...dayLog, waterMl: dayLog.waterMl + amount };
+       set((state) => ({
+@@ -212,17 +276,25 @@ export const useNutritionStore = create<NutritionState>()(
+ 
+       const activeUserId = useUserStore.getState().activeUserId;
+       if (activeUserId) await saveToDb(activeUserId, today, newLog);
++
++      // Handle water reminders if logging for today
++      if (today === startOfDay(new Date()).getTime()) {
++        const target = get().getTargets(useUserStore.getState().profile.weight).water;
++        if (newLog.waterMl >= target) {
++          cancelWaterReminders();
++        } else {
++          scheduleWaterReminders(target - newLog.waterMl);
++        }
++      }
+     },
+ 
+     toggleSupplement: async (date, supId, doseIndex) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       const supsTaken = { ...(dayLog.supplementsTaken || {}) };
+       const doses = [...(supsTaken[supId] || [])];
+       
+-      // We might need to initialize the array length based on the actual supplement dose count
+-      // but we can just lazily expand it if needed.
+       if (doseIndex >= doses.length) {
+         for (let i = doses.length; i <= doseIndex; i++) doses[i] = false;
+       }
+@@ -265,7 +337,7 @@ export const useNutritionStore = create<NutritionState>()(
+ 
+     resetMeal: async (date, mealType) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       const meals = dayLog.meals.map(m => {
+         if (m.type === mealType) return { ...m, foods: [] };
+@@ -281,18 +353,23 @@ export const useNutritionStore = create<NutritionState>()(
+ 
+     resetWater: async (date) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       const newLog = { ...dayLog, waterMl: 0 };
+       set((state) => ({ history: { ...state.history, [today]: newLog } }));
+       
+       const activeUserId = useUserStore.getState().activeUserId;
+       if (activeUserId) await saveToDb(activeUserId, today, newLog);
++
++      if (today === startOfDay(new Date()).getTime()) {
++        const target = get().getTargets(useUserStore.getState().profile.weight).water;
++        scheduleWaterReminders(target);
++      }
+     },
+ 
+     resetSupplements: async (date) => {
+       const today = startOfDay(new Date(date)).getTime();
+-      const dayLog = get().history[today] || get().getTodayLog();
++      const dayLog = get().history[today] || get().getLogForDate(today);
+       
+       const newLog = { ...dayLog, supplementsTaken: {} };
+       set((state) => ({ history: { ...state.history, [today]: newLog } }));
+diff --git a/src/store/useUserStore.ts b/src/store/useUserStore.ts
+index 09b6d57..b0fef3f 100644
+--- a/src/store/useUserStore.ts
++++ b/src/store/useUserStore.ts
+@@ -1,5 +1,5 @@
+ import { create } from 'zustand';
+-import db from '../db/db';
++import db, { type InjuryEntry } from '../db/db';
+ 
+ export interface Supplement {
+   id: string;
+@@ -17,6 +17,8 @@ export interface UserProfile {
+   level: string;
+   goals: string[];
+   profilePhoto?: string;
++  activityLevel?: 'Sedentary' | 'Light' | 'Moderate' | 'Active';
++  gender?: 'male' | 'female';
+ }
+ 
+ export interface WeightEntry {
+@@ -29,12 +31,17 @@ interface UserState {
+   profile: UserProfile;
+   supplements: Supplement[];
+   weightHistory: WeightEntry[];
++  injuries: InjuryEntry[];
+   isAuthenticated: boolean;
+   loadUser: (userId: string) => Promise<void>;
+   createUser: (userId: string, name: string) => Promise<void>;
+   logout: () => void;
+   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+   logWeight: (weight: number) => Promise<void>;
++  addSupplement: (supplement: Supplement) => Promise<void>;
++  deleteSupplement: (id: string) => Promise<void>;
++  addInjury: (injury: Omit<InjuryEntry, 'id' | 'userId' | 'dateLogged'>) => Promise<void>;
++  deleteInjury: (id: string) => Promise<void>;
+ }
+ 
+ const DEFAULT_SUPPLEMENTS: Supplement[] = [
+@@ -48,17 +55,19 @@ const DEFAULT_SUPPLEMENTS: Supplement[] = [
+ 
+ const DEFAULT_PROFILE: UserProfile = {
+   name: 'User',
+-  age: 22,
+-  weight: 78,
+-  height: 177,
+-  level: 'Intermediate',
+-  goals: ['Strength', 'Athletic', 'Aesthetics'],
++  age: 25,
++  weight: 70,
++  height: 175,
++  level: 'Beginner',
++  goals: ['General Fitness'],
++  activityLevel: 'Moderate',
++  gender: 'male',
+ };
+ 
+ const saveToDb = async (state: UserState) => {
+-  if (!state.activeUserId) return;
++  const userId = state.activeUserId || 'default_user';
+   await db.users.put({
+-    id: state.activeUserId,
++    id: userId,
+     profile: state.profile,
+     supplements: state.supplements,
+     weightHistory: state.weightHistory
+@@ -70,46 +79,58 @@ export const useUserStore = create<UserState>()((set, get) => ({
+   profile: DEFAULT_PROFILE,
+   supplements: DEFAULT_SUPPLEMENTS,
+   weightHistory: [],
++  injuries: [],
+   isAuthenticated: false,
+ 
+   loadUser: async (userId: string) => {
+-    const user = await db.users.get(userId);
++    const id = userId || 'default_user';
++    const user = await db.users.get(id);
++    const injuries = await db.injuries.where('userId').equals(id).toArray();
+     if (user) {
++      localStorage.setItem('omni_active_user', id);
+       set({
+-        activeUserId: userId,
++        activeUserId: id,
+         profile: user.profile,
+-        supplements: user.supplements,
+-        weightHistory: user.weightHistory,
++        supplements: user.supplements || DEFAULT_SUPPLEMENTS,
++        weightHistory: user.weightHistory || [],
++        injuries: injuries || [],
+         isAuthenticated: true
+       });
++    } else {
++      await get().createUser(id, 'User');
+     }
+   },
+ 
+   createUser: async (userId: string, name: string) => {
++    const id = userId || 'default_user';
+     const profile = { ...DEFAULT_PROFILE, name };
+     const weightHistory = [{ date: Date.now(), weight: profile.weight }];
+     await db.users.put({
+-      id: userId,
++      id,
+       profile,
+       supplements: DEFAULT_SUPPLEMENTS,
+       weightHistory
+     });
++    localStorage.setItem('omni_active_user', id);
+     set({
+-      activeUserId: userId,
++      activeUserId: id,
+       profile,
+       supplements: DEFAULT_SUPPLEMENTS,
+       weightHistory,
++      injuries: [],
+       isAuthenticated: true
+     });
+   },
+ 
+   logout: () => {
++    localStorage.removeItem('omni_active_user');
+     set({
+       activeUserId: null,
+       isAuthenticated: false,
+       profile: DEFAULT_PROFILE,
+       supplements: DEFAULT_SUPPLEMENTS,
+-      weightHistory: []
++      weightHistory: [],
++      injuries: []
+     });
+   },
+ 
+@@ -126,5 +147,38 @@ export const useUserStore = create<UserState>()((set, get) => ({
+     const newHistory = [...state.weightHistory, { date: Date.now(), weight }];
+     set({ profile: newProfile, weightHistory: newHistory });
+     await saveToDb({ ...state, profile: newProfile, weightHistory: newHistory });
++  },
++
++  addSupplement: async (supplement: Supplement) => {
++    const state = get();
++    const newSupplements = [...state.supplements, supplement];
++    set({ supplements: newSupplements });
++    await saveToDb({ ...state, supplements: newSupplements });
++  },
++
++  deleteSupplement: async (id: string) => {
++    const state = get();
++    const newSupplements = state.supplements.filter(s => s.id !== id);
++    set({ supplements: newSupplements });
++    await saveToDb({ ...state, supplements: newSupplements });
++  },
++
++  addInjury: async (injury) => {
++    const state = get();
++    const id = Math.random().toString(36).substring(2, 9);
++    const userId = state.activeUserId || 'default_user';
++    const newEntry: InjuryEntry = {
++      ...injury,
++      id,
++      userId,
++      dateLogged: Date.now()
++    };
++    await db.injuries.put(newEntry);
++    set({ injuries: [...state.injuries, newEntry] });
++  },
++
++  deleteInjury: async (id: string) => {
++    await db.injuries.delete(id);
++    set(state => ({ injuries: state.injuries.filter(i => i.id !== id) }));
+   }
+ }));
+diff --git a/src/store/useWorkoutStore.ts b/src/store/useWorkoutStore.ts
+index 539f93a..c10cca4 100644
+--- a/src/store/useWorkoutStore.ts
++++ b/src/store/useWorkoutStore.ts
+@@ -55,6 +55,7 @@ interface WorkoutState {
+   scheduleSession: (date: string, type: string, exerciseIds: string[]) => void;
+   removeScheduledSession: (id: string) => void;
+   updateScheduledSessionDate: (id: string, newDate: string) => void;
++  updateHistoricalSession: (sessionId: string, updatedSession: Partial<WorkoutSession>) => Promise<void>;
+ }
+ 
+ const generateId = () => Math.random().toString(36).substring(2, 9);
+@@ -253,5 +254,20 @@ export const useWorkoutStore = create<WorkoutState>()((set, get) => ({
+       }
+     }
+     return 0; // Default if no history
++  },
++
++  updateHistoricalSession: async (sessionId, updatedSession) => {
++    const state = get();
++    const newHistory = state.history.map(s => {
++      if (s.sessionId !== sessionId) return s;
++      return { ...s, ...updatedSession } as WorkoutSession;
++    });
++    set({ history: newHistory });
++
++    const activeUserId = useUserStore.getState().activeUserId || 'default_user';
++    const foundSession = newHistory.find(s => s.sessionId === sessionId);
++    if (foundSession) {
++      await db.workouts.put({ ...foundSession, userId: activeUserId });
++    }
+   }
+ }));

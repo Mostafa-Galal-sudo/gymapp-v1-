@@ -18,12 +18,14 @@ export const Auth = () => {
 
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [userExists, setUserExists] = useState(false);
 
   useEffect(() => {
     const checkExistingUser = async () => {
       const user = await db.users.get('default_user');
       if (user && user.profile) {
         setName(user.profile.name || '');
+        setUserExists(true);
       }
       setLoading(false);
     };
@@ -34,8 +36,15 @@ export const Auth = () => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    // Load or create the default user
-    await createUser('default_user', name.trim());
+    // Existing user -> load their real data. New user -> create fresh profile.
+    // (Previously this always called createUser, which wiped existing
+    // profile/supplements/weightHistory back to defaults on every re-login.)
+    if (userExists) {
+      await loadUser('default_user');
+    } else {
+      await createUser('default_user', name.trim());
+    }
+
     await loadUserWorkouts('default_user');
     await loadUserHistory('default_user');
     await loadUserGamification('default_user');
@@ -62,7 +71,9 @@ export const Auth = () => {
       </div>
 
       <form onSubmit={handleLogin} className="glass-card" style={{ width: '100%', maxWidth: '360px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', textAlign: 'center', marginBottom: '0.5rem' }}>Login / Setup</h2>
+        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', textAlign: 'center', marginBottom: '0.5rem' }}>
+          {userExists ? 'Welcome Back' : 'Login / Setup'}
+        </h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <label style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Name / Username</label>
           <input
@@ -74,7 +85,9 @@ export const Auth = () => {
             autoFocus
           />
         </div>
-        <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem' }}>Start</button>
+        <button type="submit" className="btn-primary" style={{ marginTop: '0.5rem' }}>
+          {userExists ? 'Continue' : 'Start'}
+        </button>
       </form>
     </div>
   );

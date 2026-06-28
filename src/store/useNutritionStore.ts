@@ -208,16 +208,21 @@ export const useNutritionStore = create<NutritionState>()(
       const targetDate = startOfDay(new Date(date)).getTime();
       const history = get().history;
       if (!history[targetDate]) {
+        // Derive stable ids from date+type so empty-day skeletons keep identity
+        // across renders (otherwise UI state keyed on meal.id resets every render).
+        const emptyMeal = (type: Meal['type']): Meal => ({
+          id: `${targetDate}_${type}`, type, foods: []
+        });
         return {
           date: targetDate,
           waterMl: 0,
           meals: [
-            { id: generateId(), type: 'Breakfast', foods: [] },
-            { id: generateId(), type: 'Lunch', foods: [] },
-            { id: generateId(), type: 'Dinner', foods: [] },
-            { id: generateId(), type: 'Snacks', foods: [] },
-            { id: generateId(), type: 'Pre-workout', foods: [] },
-            { id: generateId(), type: 'Post-workout', foods: [] }
+            emptyMeal('Breakfast'),
+            emptyMeal('Lunch'),
+            emptyMeal('Dinner'),
+            emptyMeal('Snacks'),
+            emptyMeal('Pre-workout'),
+            emptyMeal('Post-workout')
           ],
           supplementsTaken: {}
         };

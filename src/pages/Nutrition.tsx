@@ -27,9 +27,9 @@ const MacroRing = ({ value, target, label, color, size = 72 }: {
     <div className="macro-ring-wrap">
       <div className="water-ring-container" style={{ width: size, height: size }}>
         <svg width={size} height={size}>
-          <circle cx={size/2} cy={size/2} r={r} fill="none"
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none"
             stroke="rgba(255,255,255,0.06)" strokeWidth={8} />
-          <circle cx={size/2} cy={size/2} r={r} fill="none"
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none"
             stroke={displayColor} strokeWidth={8}
             strokeDasharray={`${dash} ${circ}`}
             strokeLinecap="round"
@@ -87,9 +87,9 @@ const WaterSection = ({ current, target, onAdd, onReset }: {
         {/* Circular Water Ring */}
         <div className="water-ring-container" style={{ width: size, height: size, flexShrink: 0 }}>
           <svg width={size} height={size}>
-            <circle cx={size/2} cy={size/2} r={r} fill="none"
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none"
               stroke="rgba(0,240,255,0.1)" strokeWidth={10} />
-            <circle cx={size/2} cy={size/2} r={r} fill="none"
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none"
               stroke="var(--cyan)" strokeWidth={10}
               strokeDasharray={`${dash} ${circ}`}
               strokeLinecap="round"
@@ -189,7 +189,7 @@ const Supplements = ({ todayLog, onReset }: { todayLog: NutritionDay, onReset: (
                       color: isTaken ? '#000' : 'var(--color-text-muted)',
                       fontSize: '0.75rem', fontWeight: 700,
                     }}>
-                      {isTaken ? <Check size={16} strokeWidth={3} /> : `${di+1}`}
+                      {isTaken ? <Check size={16} strokeWidth={3} /> : `${di + 1}`}
                     </button>
                   );
                 })}
@@ -207,7 +207,7 @@ const FoodResultRow = ({ food, onAdd }: { food: Food, onAdd: (food: Food, quanti
   const t = useT();
   const [qty, setQty] = useState(food.servingSize);
   const fName = useLanguageStore.getState().lang === 'ar' && food.nameAr ? food.nameAr : food.name;
-  
+
   const categoryColor = (cat: string) => ({
     Local: 'var(--gold)', International: 'var(--magenta)',
     Raw: 'var(--color-success)', Supplement: 'var(--cyan)',
@@ -231,10 +231,10 @@ const FoodResultRow = ({ food, onAdd }: { food: Food, onAdd: (food: Food, quanti
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '0.2rem', width: '70px' }}>
-          <input 
-            type="number" 
-            value={qty || ''} 
-            onChange={e => setQty(parseFloat(e.target.value) || 0)} 
+          <input
+            type="number"
+            value={qty || ''}
+            onChange={e => setQty(parseFloat(e.target.value) || 0)}
             style={{ width: '40px', background: 'transparent', border: 'none', color: '#fff', fontSize: '0.8rem', textAlign: 'center', padding: 0 }}
           />
           <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{food.servingUnit}</span>
@@ -253,29 +253,29 @@ const FoodResultRow = ({ food, onAdd }: { food: Food, onAdd: (food: Food, quanti
 };
 
 const Nutrition = () => {
-  const t            = useT();
-  const profile      = useUserStore(s => s.profile);
+  const t = useT();
+  const profile = useUserStore(s => s.profile);
   const getLogForDate = useNutritionStore(s => s.getLogForDate);
-  const historyData  = useNutritionStore(s => s.history);
-  const getTargets   = useNutritionStore(s => s.getTargets);
-  const addFood      = useNutritionStore(s => s.addFood);
-  const removeFood   = useNutritionStore(s => s.removeFood);
-  const addWater     = useNutritionStore(s => s.addWater);
-  const resetMeal    = useNutritionStore(s => s.resetMeal);
-  const resetWater   = useNutritionStore(s => s.resetWater);
+  const historyData = useNutritionStore(s => s.history);
+  const getTargets = useNutritionStore(s => s.getTargets);
+  const addFood = useNutritionStore(s => s.addFood);
+  const removeFood = useNutritionStore(s => s.removeFood);
+  const addWater = useNutritionStore(s => s.addWater);
+  const resetMeal = useNutritionStore(s => s.resetMeal);
+  const resetWater = useNutritionStore(s => s.resetWater);
   const resetSupplements = useNutritionStore(s => s.resetSupplements);
-  const addXP        = useGamificationStore(s => s.addXP);
-  const unlockBadge  = useGamificationStore(s => s.unlockBadge);
+  const addXP = useGamificationStore(s => s.addXP);
+  const unlockBadge = useGamificationStore(s => s.unlockBadge);
 
   // Historical date state
   const [selectedDate, setSelectedDate] = useState<number>(startOfDay(new Date()).getTime());
   const todayLog = historyData[selectedDate] || getLogForDate(selectedDate);
-  const targets  = getTargets(profile.weight);
+  const targets = getTargets(profile.weight);
 
   // Search, custom foods, and AI Scanner states
-  const [search, setSearch]       = useState('');
+  const [search, setSearch] = useState('');
   const [searchTab, setSearchTab] = useState<'all' | 'raw'>('all');
-  const [mealType, setMealType]   = useState('Breakfast');
+  const [mealType, setMealType] = useState('Breakfast');
   const [openMeals, setOpenMeals] = useState<Record<string, boolean>>({ Breakfast: true });
   const [showMicros, setShowMicros] = useState(false);
 
@@ -294,7 +294,8 @@ const Nutrition = () => {
   const barcodeScannerRef = useRef<any>(null);
 
   const loadCustomFoods = async () => {
-    const list = await db.custom_foods.toArray();
+    const userId = useUserStore.getState().activeUserId || 'default_user';
+    const list = await db.custom_foods.where('userId').equals(userId).toArray();
     setCustomFoods(list);
   };
 
@@ -311,9 +312,10 @@ const Nutrition = () => {
     if (!file) return;
 
     setAiScanning(true);
-    try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+      try {
         const base64WithHeader = event.target?.result as string;
         const base64Data = base64WithHeader.split(',')[1];
         const mimeType = file.type;
@@ -328,13 +330,20 @@ const Nutrition = () => {
         const result = await res.json();
         setAiScanResult(result);
         setShowAiResultModal(true);
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Error scanning food:', error);
-    } finally {
+      } catch (error) {
+        console.error('Error scanning food:', error);
+        alert('فشل تحليل الصورة، حاول مرة أخرى.');
+      } finally {
+        setAiScanning(false);
+      }
+    };
+
+    reader.onerror = () => {
+      console.error('Error reading file');
       setAiScanning(false);
-    }
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const startBarcodeScanner = async () => {
@@ -359,7 +368,7 @@ const Nutrition = () => {
             }
             stopBarcodeScanner();
           },
-          () => {/* ignore frame errors */}
+          () => {/* ignore frame errors */ }
         );
       } catch (err) {
         console.error('Barcode scanner error:', err);
@@ -370,7 +379,7 @@ const Nutrition = () => {
 
   const stopBarcodeScanner = () => {
     if (barcodeScannerRef.current) {
-      barcodeScannerRef.current.stop().catch(() => {});
+      barcodeScannerRef.current.stop().catch(() => { });
       barcodeScannerRef.current = null;
     }
     setShowBarcodeScanner(false);
@@ -378,9 +387,11 @@ const Nutrition = () => {
 
   const handleCreateCustomFood = async () => {
     if (!newCustomFood.name) return;
+    const userId = useUserStore.getState().activeUserId || 'default_user';
     const foodId = 'custom_' + Math.random().toString(36).substring(2, 9);
     const item = {
       id: foodId,
+      userId,
       name: newCustomFood.name,
       nameAr: newCustomFood.nameAr || newCustomFood.name,
       category: newCustomFood.category,
@@ -405,10 +416,10 @@ const Nutrition = () => {
   let tFib = 0, tSug = 0, tSod = 0, tPot = 0, tIron = 0, tCal = 0, tVitA = 0, tVitC = 0, tVitD = 0, tVitB12 = 0;
 
   todayLog.meals.forEach(m => m.foods.forEach(f => {
-    totalCal   += f.calories;
-    totalPro   += f.protein;
+    totalCal += f.calories;
+    totalPro += f.protein;
     totalCarbs += f.carbs;
-    totalFats  += f.fats;
+    totalFats += f.fats;
     tFib += f.fiber || 0;
     tSug += f.sugar || 0;
     tSod += f.sodium || 0;
@@ -424,11 +435,11 @@ const Nutrition = () => {
   const allFoods = [...FOOD_DATABASE, ...customFoods];
   const filtered = search.length > 1
     ? allFoods.filter(f => {
-        if (searchTab === 'raw' && f.category !== 'Raw') return false;
-        const nameMatch = f.name.toLowerCase().includes(search.toLowerCase());
-        const arNameMatch = f.nameAr && f.nameAr.includes(search);
-        return nameMatch || arNameMatch;
-      }).slice(0, 10)
+      if (searchTab === 'raw' && f.category !== 'Raw') return false;
+      const nameMatch = f.name.toLowerCase().includes(search.toLowerCase());
+      const arNameMatch = f.nameAr && f.nameAr.includes(search);
+      return nameMatch || arNameMatch;
+    }).slice(0, 10)
     : [];
 
   const handleAdd = (food: Food, quantity: number) => {
@@ -436,10 +447,10 @@ const Nutrition = () => {
     const ratio = quantity / food.servingSize;
 
     // ── Scaled macros ──────────────────────────────────────────────────────
-    const scaledCal     = Math.round(food.calories  * ratio);
-    const scaledProtein = parseFloat((food.protein  * ratio).toFixed(1));
-    const scaledCarbs   = parseFloat((food.carbs    * ratio).toFixed(1));
-    const scaledFats    = parseFloat((food.fats     * ratio).toFixed(1));
+    const scaledCal = Math.round(food.calories * ratio);
+    const scaledProtein = parseFloat((food.protein * ratio).toFixed(1));
+    const scaledCarbs = parseFloat((food.carbs * ratio).toFixed(1));
+    const scaledFats = parseFloat((food.fats * ratio).toFixed(1));
 
     // ── Micronutrients: use food DB value if present, else estimate from macros ──
     // Estimation formulas (per scaled portion):
@@ -453,34 +464,34 @@ const Nutrition = () => {
     //   vitaminA  ≈ fats × 0.8
     //   vitaminD  ≈ fats × 0.05
     const est = {
-      fiber:     parseFloat((scaledCarbs * 0.02  + scaledProtein * 0.005).toFixed(1)),
-      sugar:     parseFloat((scaledCarbs * 0.05).toFixed(1)),
-      sodium:    Math.round(scaledProtein * 6    + scaledCarbs * 0.5  + scaledCal * 0.08),
-      potassium: Math.round(scaledProtein * 12   + scaledCarbs * 1.5  + scaledFats * 0.5),
-      iron:      parseFloat((scaledProtein * 0.04 + scaledCarbs * 0.008).toFixed(1)),
-      calcium:   Math.round(scaledProtein * 0.6  + scaledCarbs * 0.1  + scaledFats * 0.2),
-      vitaminC:  Math.round(scaledCarbs * 0.15),
-      vitaminA:  Math.round(scaledFats  * 0.8),
-      vitaminD:  parseFloat((scaledFats * 0.05).toFixed(1)),
+      fiber: parseFloat((scaledCarbs * 0.02 + scaledProtein * 0.005).toFixed(1)),
+      sugar: parseFloat((scaledCarbs * 0.05).toFixed(1)),
+      sodium: Math.round(scaledProtein * 6 + scaledCarbs * 0.5 + scaledCal * 0.08),
+      potassium: Math.round(scaledProtein * 12 + scaledCarbs * 1.5 + scaledFats * 0.5),
+      iron: parseFloat((scaledProtein * 0.04 + scaledCarbs * 0.008).toFixed(1)),
+      calcium: Math.round(scaledProtein * 0.6 + scaledCarbs * 0.1 + scaledFats * 0.2),
+      vitaminC: Math.round(scaledCarbs * 0.15),
+      vitaminA: Math.round(scaledFats * 0.8),
+      vitaminD: parseFloat((scaledFats * 0.05).toFixed(1)),
     };
 
     const logged: LoggedFood = {
       foodId: food.id, name: food.name, nameAr: food.nameAr,
       amount: quantity, unit: food.servingUnit,
       calories: scaledCal,
-      protein:  scaledProtein,
-      carbs:    scaledCarbs,
-      fats:     scaledFats,
+      protein: scaledProtein,
+      carbs: scaledCarbs,
+      fats: scaledFats,
       // Use DB value if present, fall back to macro-based estimate
-      fiber:     food.fiber     != null ? parseFloat((food.fiber     * ratio).toFixed(1)) : est.fiber,
-      sugar:     food.sugar     != null ? parseFloat((food.sugar     * ratio).toFixed(1)) : est.sugar,
-      sodium:    food.sodium    != null ? Math.round(food.sodium    * ratio)              : est.sodium,
-      potassium: food.potassium != null ? Math.round(food.potassium * ratio)              : est.potassium,
-      iron:      food.iron      != null ? parseFloat((food.iron      * ratio).toFixed(1)) : est.iron,
-      calcium:   food.calcium   != null ? Math.round(food.calcium   * ratio)              : est.calcium,
-      vitaminA:  food.vitaminA  != null ? Math.round(food.vitaminA  * ratio)              : est.vitaminA,
-      vitaminC:  food.vitaminC  != null ? Math.round(food.vitaminC  * ratio)              : est.vitaminC,
-      vitaminD:  food.vitaminD  != null ? Math.round(food.vitaminD  * ratio)              : est.vitaminD,
+      fiber: food.fiber != null ? parseFloat((food.fiber * ratio).toFixed(1)) : est.fiber,
+      sugar: food.sugar != null ? parseFloat((food.sugar * ratio).toFixed(1)) : est.sugar,
+      sodium: food.sodium != null ? Math.round(food.sodium * ratio) : est.sodium,
+      potassium: food.potassium != null ? Math.round(food.potassium * ratio) : est.potassium,
+      iron: food.iron != null ? parseFloat((food.iron * ratio).toFixed(1)) : est.iron,
+      calcium: food.calcium != null ? Math.round(food.calcium * ratio) : est.calcium,
+      vitaminA: food.vitaminA != null ? Math.round(food.vitaminA * ratio) : est.vitaminA,
+      vitaminC: food.vitaminC != null ? Math.round(food.vitaminC * ratio) : est.vitaminC,
+      vitaminD: food.vitaminD != null ? Math.round(food.vitaminD * ratio) : est.vitaminD,
       vitaminB12: food.vitaminB12 != null ? parseFloat((food.vitaminB12 * ratio).toFixed(1)) : undefined,
     };
     addFood(todayLog.date, mealType, logged);
@@ -497,11 +508,11 @@ const Nutrition = () => {
   const MEAL_TYPE_KEYS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Pre-workout', 'Post-workout'];
   // Translated labels for display
   const MEAL_TYPE_LABELS: Record<string, string> = {
-    'Breakfast':    t('nutrition.breakfast', 'Breakfast'),
-    'Lunch':        t('nutrition.lunch', 'Lunch'),
-    'Dinner':       t('nutrition.dinner', 'Dinner'),
-    'Snacks':       t('nutrition.snacks', 'Snacks'),
-    'Pre-workout':  t('nutrition.pre_workout', 'Pre-workout'),
+    'Breakfast': t('nutrition.breakfast', 'Breakfast'),
+    'Lunch': t('nutrition.lunch', 'Lunch'),
+    'Dinner': t('nutrition.dinner', 'Dinner'),
+    'Snacks': t('nutrition.snacks', 'Snacks'),
+    'Pre-workout': t('nutrition.pre_workout', 'Pre-workout'),
     'Post-workout': t('nutrition.post_workout', 'Post-workout'),
   };
 
@@ -550,7 +561,7 @@ const Nutrition = () => {
         <MacroBar label={t('dash.protein')} current={totalPro} target={targets.protein} gradient="linear-gradient(90deg,#00ff88,var(--cyan))" />
         <MacroBar label={t('nutrition.carbs')} current={totalCarbs} target={targets.carbs} gradient="linear-gradient(90deg,var(--color-warning),#ff6600)" />
         <MacroBar label={t('nutrition.fats')} current={totalFats} target={targets.fats} gradient="linear-gradient(90deg,var(--magenta),#8800aa)" />
-        
+
         <button onClick={() => setShowMicros(!showMicros)} style={{
           width: '100%', marginTop: '1rem', padding: '0.5rem', fontSize: '0.75rem',
           color: 'var(--cyan)', border: '1px solid rgba(0,240,255,0.2)', borderRadius: 8,
@@ -560,16 +571,16 @@ const Nutrition = () => {
         </button>
         {showMicros && (() => {
           const microRows = [
-            { label: t('nutrition.fiber'),     current: tFib,              target: targets.fiber,      unit: 'g',   color: '#a78bfa' },
-            { label: t('nutrition.sugar'),     current: tSug,              target: 50,                 unit: 'g',   color: '#fb923c' },
-            { label: t('nutrition.sodium'),    current: tSod,              target: targets.sodium,     unit: 'mg',  color: '#60a5fa' },
-            { label: t('nutrition.potassium'), current: tPot,              target: targets.potassium,  unit: 'mg',  color: '#a78bfa' },
-            { label: t('nutrition.iron'),      current: tIron,             target: targets.iron,       unit: 'mg',  color: '#f87171' },
-            { label: t('nutrition.calcium'),   current: tCal,              target: targets.calcium,    unit: 'mg',  color: '#94a3b8' },
-            { label: t('nutrition.vitaminC'),  current: tVitC,             target: targets.vitaminC,   unit: 'mg',  color: '#f97316' },
-            { label: t('nutrition.vitaminA'),  current: tVitA,             target: targets.vitaminA,   unit: 'mcg', color: '#fbbf24' },
-            { label: t('nutrition.vitaminD'),  current: tVitD,             target: targets.vitaminD,   unit: 'IU',  color: '#fde68a' },
-            { label: t('nutrition.vitaminB12'),current: tVitB12,           target: targets.vitaminB12, unit: 'mcg', color: '#e879f9' },
+            { label: t('nutrition.fiber'), current: tFib, target: targets.fiber, unit: 'g', color: '#a78bfa' },
+            { label: t('nutrition.sugar'), current: tSug, target: 50, unit: 'g', color: '#fb923c' },
+            { label: t('nutrition.sodium'), current: tSod, target: targets.sodium, unit: 'mg', color: '#60a5fa' },
+            { label: t('nutrition.potassium'), current: tPot, target: targets.potassium, unit: 'mg', color: '#a78bfa' },
+            { label: t('nutrition.iron'), current: tIron, target: targets.iron, unit: 'mg', color: '#f87171' },
+            { label: t('nutrition.calcium'), current: tCal, target: targets.calcium, unit: 'mg', color: '#94a3b8' },
+            { label: t('nutrition.vitaminC'), current: tVitC, target: targets.vitaminC, unit: 'mg', color: '#f97316' },
+            { label: t('nutrition.vitaminA'), current: tVitA, target: targets.vitaminA, unit: 'mcg', color: '#fbbf24' },
+            { label: t('nutrition.vitaminD'), current: tVitD, target: targets.vitaminD, unit: 'IU', color: '#fde68a' },
+            { label: t('nutrition.vitaminB12'), current: tVitB12, target: targets.vitaminB12, unit: 'mcg', color: '#e879f9' },
           ];
           return (
             <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -765,7 +776,7 @@ const Nutrition = () => {
               <Sparkles size={18} color="var(--cyan)" />
               <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.1rem', color: 'var(--cyan)', margin: 0 }}>تحليل الوجبة بالذكاء الاصطناعي</h3>
             </div>
-            
+
             <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 8, padding: '1rem', marginBottom: '1rem', textAlign: 'center' }}>
               <h4 style={{ fontSize: '1.2rem', fontWeight: 700, margin: '0 0 0.25rem 0' }}>{useLanguageStore.getState().lang === 'ar' ? aiScanResult.nameAr : aiScanResult.name}</h4>
               <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--magenta)', border: '1px solid var(--magenta)', padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 700 }}>
@@ -849,7 +860,7 @@ const Nutrition = () => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{meal.foods.length} {t('common.items')}</span>
-                  <button 
+                  <button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (window.confirm(`Reset ${typeLabel}?`)) resetMeal(todayLog.date, typeKey);
@@ -867,28 +878,28 @@ const Nutrition = () => {
                   {meal.foods.map((food, fi) => {
                     const loggedName = useLanguageStore.getState().lang === 'ar' && food.nameAr ? food.nameAr : food.name;
                     return (
-                    <div key={fi} style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '0.6rem 0',
-                      borderTop: '1px solid rgba(0,240,255,0.07)',
-                    }}>
-                      <div style={{ flex: 1, paddingInlineEnd: '0.5rem' }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.15rem' }}>{loggedName}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
-                          {food.amount}{food.unit} · {food.calories}kcal
+                      <div key={fi} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '0.6rem 0',
+                        borderTop: '1px solid rgba(0,240,255,0.07)',
+                      }}>
+                        <div style={{ flex: 1, paddingInlineEnd: '0.5rem' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.15rem' }}>{loggedName}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                            {food.amount}{food.unit} · {food.calories}kcal
+                          </div>
+                          <div style={{ fontSize: '0.67rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.1rem' }}>
+                            P:{Math.round(food.protein)}g · C:{Math.round(food.carbs)}g · F:{Math.round(food.fats)}g
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.67rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.1rem' }}>
-                          P:{Math.round(food.protein)}g · C:{Math.round(food.carbs)}g · F:{Math.round(food.fats)}g
-                        </div>
+                        <button
+                          onClick={() => removeFood(todayLog.date, meal.id, food.foodId)}
+                          style={{ background: 'rgba(255,0,80,0.1)', border: '1px solid rgba(255,0,80,0.25)', borderRadius: 6, padding: '0.35rem', display: 'flex', color: 'rgba(255,0,110,0.8)', flexShrink: 0 }}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => removeFood(todayLog.date, meal.id, food.foodId)}
-                        style={{ background: 'rgba(255,0,80,0.1)', border: '1px solid rgba(255,0,80,0.25)', borderRadius: 6, padding: '0.35rem', display: 'flex', color: 'rgba(255,0,110,0.8)', flexShrink: 0 }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  );
+                    );
                   })}
                 </div>
               )}
@@ -898,8 +909,8 @@ const Nutrition = () => {
       </div>
 
       {/* Supplements */}
-      <Supplements 
-        todayLog={todayLog} 
+      <Supplements
+        todayLog={todayLog}
         onReset={() => window.confirm('Reset today\'s supplements?') && resetSupplements(todayLog.date)}
       />
     </div>

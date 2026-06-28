@@ -41,6 +41,7 @@ interface UserState {
   addSupplement: (supplement: Supplement) => Promise<void>;
   deleteSupplement: (id: string) => Promise<void>;
   addInjury: (injury: Omit<InjuryEntry, 'id' | 'userId' | 'dateLogged'>) => Promise<void>;
+  updateInjuryStatus: (id: string, status: InjuryEntry['status']) => Promise<void>;
   deleteInjury: (id: string) => Promise<void>;
 }
 
@@ -65,9 +66,9 @@ const DEFAULT_PROFILE: UserProfile = {
 };
 
 const saveToDb = async (state: UserState) => {
-  const userId = state.activeUserId || 'default_user';
+  if (!state.activeUserId) return;
   await db.users.put({
-    id: userId,
+    id: state.activeUserId,
     profile: state.profile,
     supplements: state.supplements,
     weightHistory: state.weightHistory
@@ -180,5 +181,13 @@ export const useUserStore = create<UserState>()((set, get) => ({
   deleteInjury: async (id: string) => {
     await db.injuries.delete(id);
     set(state => ({ injuries: state.injuries.filter(i => i.id !== id) }));
+  },
+
+  updateInjuryStatus: async (id: string, status: InjuryEntry['status']) => {
+    const existing = get().injuries.find(i => i.id === id);
+    if (!existing) return;
+    const updated = { ...existing, status };
+    await db.injuries.put(updated);
+    set(state => ({ injuries: state.injuries.map(i => i.id === id ? updated : i) }));
   }
 }));

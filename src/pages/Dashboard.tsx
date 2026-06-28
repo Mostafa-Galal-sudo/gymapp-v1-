@@ -211,6 +211,8 @@ const AICoachInsight = ({ history, acwr, totalCal, targetCal, sessionCount }: {
 }) => {
   const t = useT();
   const profile = useUserStore(s => s.profile);
+  const supplements = useUserStore(s => s.supplements);
+  const injuries = useUserStore(s => s.injuries);
   const lines: [string, string][] = [];     // [headline, subtitle]
 
   if (sessionCount === 0) {
@@ -282,8 +284,8 @@ const AICoachInsight = ({ history, acwr, totalCal, targetCal, sessionCount }: {
             acwr,
             totalCal,
             targetCal,
-            supplements: profile.supplements,
-            injuries: profile.injuries
+            supplements,
+            injuries
           }
         })
       });

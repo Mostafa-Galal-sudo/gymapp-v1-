@@ -291,10 +291,10 @@ const BMICalculatorSection = () => {
   const bmiCategory = bmi < 18.5
     ? { key: 'profile.underweight', color: 'var(--cyan)', bg: 'rgba(0,240,255,0.08)' }
     : bmi < 25
-    ? { key: 'profile.normal', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' }
-    : bmi < 30
-    ? { key: 'profile.overweight', color: 'var(--gold)', bg: 'rgba(255,200,0,0.08)' }
-    : { key: 'profile.obese', color: 'var(--magenta)', bg: 'rgba(255,0,85,0.08)' };
+      ? { key: 'profile.normal', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' }
+      : bmi < 30
+        ? { key: 'profile.overweight', color: 'var(--gold)', bg: 'rgba(255,200,0,0.08)' }
+        : { key: 'profile.obese', color: 'var(--magenta)', bg: 'rgba(255,0,85,0.08)' };
 
   const bmiPct = Math.min(100, Math.max(0, ((bmi - 10) / 30) * 100));
   const targets = getTargets(profile.weight);
@@ -596,12 +596,16 @@ const Profile = () => {
   };
 
   const handleExport = async () => {
-    const data = {
-      user: JSON.parse(localStorage.getItem('omnibody-user-storage') || '{}').state,
-      workout: JSON.parse(localStorage.getItem('omnibody-workout-storage') || '{}').state,
-      nutrition: JSON.parse(localStorage.getItem('omnibody-nutrition-storage') || '{}').state,
-      gamification: JSON.parse(localStorage.getItem('omnibody-gamification-storage') || '{}').state,
-    };
+    const activeUserId = userStore.activeUserId || 'default_user';
+
+    const user = await db.users.get(activeUserId);
+    const dailyLogs = await db.daily_logs.where('userId').equals(activeUserId).toArray();
+    const workouts = await db.workouts.where('userId').equals(activeUserId).toArray();
+    const customExercises = await db.custom_exercises.where('userId').equals(activeUserId).toArray();
+    const injuries = await db.injuries.where('userId').equals(activeUserId).toArray();
+    const customFoods = await db.custom_foods.where('userId').equals(activeUserId).toArray();
+
+    const data = { user, dailyLogs, workouts, customExercises, injuries, customFoods };
     const jsonString = JSON.stringify(data, null, 2);
     const fileName = `omnibody-backup-${format(new Date(), 'yyyy-MM-dd')}.json`;
 
@@ -796,8 +800,7 @@ const Profile = () => {
                   <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
                     onClick={async () => {
                       const newStatus = inj.status === 'Active' ? 'Recovering' : 'Active';
-                      await db.injuries.put({ ...inj, status: newStatus });
-                      await userStore.loadUser(userStore.activeUserId || 'default_user');
+                      await userStore.updateInjuryStatus(inj.id, newStatus);
                     }}>
                     {inj.status === 'Active' ? t('profile.active') : t('profile.recovering')}
                   </button>

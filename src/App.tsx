@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { App as CapacitorApp } from '@capacitor/app';
 import { useLanguageStore } from './store/useLanguageStore';
 import { useUserStore } from './store/useUserStore';
+import { loadAllUserData } from './store/sessionLoader';
 import MainLayout from './components/layout/MainLayout';
 import { MigrationGate } from './components/MigrationGate';
 
@@ -54,7 +55,6 @@ function AppRouter() {
 function App() {
   const lang = useLanguageStore(s => s.lang);
   const isAuthenticated = useUserStore(s => s.isAuthenticated);
-  const loadUser = useUserStore(s => s.loadUser);
 
   useEffect(() => {
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -64,9 +64,13 @@ function App() {
   useEffect(() => {
     const storedId = localStorage.getItem('omni_active_user');
     if (storedId) {
-      loadUser(storedId);
+      // Hydrates the user profile AND every secondary store (workouts,
+      // nutrition, gamification, exercises). Previously this called
+      // loadUser() alone, so auto-login left workouts/nutrition/XP/badges/
+      // custom exercises empty until the user manually logged out and back in.
+      loadAllUserData(storedId);
     }
-  }, [loadUser]);
+  }, []);
 
   return (
     <MigrationGate>

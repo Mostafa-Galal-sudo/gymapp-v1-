@@ -41,6 +41,7 @@ export interface DailyLogEntity {
 
 export interface CustomFood {
   id: string;
+  userId: string;
   name: string;
   nameAr: string;
   category: string;
@@ -80,11 +81,21 @@ db.version(2).stores({
 // Schema version 3 (V3)
 db.version(3).stores({
   users: 'id',
-  daily_logs: 'id, userId, date, [userId+date]', 
+  daily_logs: 'id, userId, date, [userId+date]',
   workouts: 'sessionId, userId, date, type, phase',
   custom_exercises: 'id, userId, name, category, muscleGroup',
   injuries: 'id, userId, bodyPart, status',
   custom_foods: 'id, name, category'
+});
+
+// Schema version 4 (V4) — custom_foods scoped per user
+db.version(4).stores({
+  users: 'id',
+  daily_logs: 'id, userId, date, [userId+date]',
+  workouts: 'sessionId, userId, date, type, phase',
+  custom_exercises: 'id, userId, name, category, muscleGroup',
+  injuries: 'id, userId, bodyPart, status',
+  custom_foods: 'id, userId, name, category'
 });
 
 export default db;

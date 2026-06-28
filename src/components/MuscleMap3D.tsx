@@ -17,23 +17,23 @@ export interface MuscleMap3DProps {
 
 // Preload models
 try {
-  useGLTF.preload('/muscles/body.glb');
-  MUSCLES.forEach((m) => useGLTF.preload(`/muscles/${m}.glb`));
+  useGLTF.preload('./muscles/body.glb');
+  MUSCLES.forEach((m) => useGLTF.preload(`./muscles/${m}.glb`));
 } catch (e) {
   // Ignore
 }
 
 function BodyModel() {
-  const { scene } = useGLTF('/muscles/body.glb');
+  const { scene } = useGLTF('./muscles/body.glb');
   const clone = useMemo(() => {
     const c = scene.clone();
     c.traverse((node) => {
       if ((node as THREE.Mesh).isMesh) {
         const mesh = node as THREE.Mesh;
         if (!mesh.material) {
-            mesh.material = new THREE.MeshStandardMaterial();
+          mesh.material = new THREE.MeshStandardMaterial();
         } else {
-            mesh.material = (mesh.material as THREE.Material).clone();
+          mesh.material = (mesh.material as THREE.Material).clone();
         }
         const mat = mesh.material as THREE.MeshStandardMaterial;
         mat.color.set('#d1d5db'); // gray-300
@@ -63,9 +63,9 @@ function MuscleMesh({ name, isWorked, isSelected, isHovered, onHover, onClick }:
       if ((node as THREE.Mesh).isMesh) {
         const mesh = node as THREE.Mesh;
         if (!mesh.material) {
-            mesh.material = new THREE.MeshStandardMaterial();
+          mesh.material = new THREE.MeshStandardMaterial();
         } else {
-            mesh.material = (mesh.material as THREE.Material).clone();
+          mesh.material = (mesh.material as THREE.Material).clone();
         }
         const mat = mesh.material as THREE.MeshStandardMaterial;
         mat.polygonOffset = true;
@@ -103,8 +103,8 @@ function MuscleMesh({ name, isWorked, isSelected, isHovered, onHover, onClick }:
   }, [clone, isWorked, isSelected, isHovered]);
 
   return (
-    <primitive 
-      object={clone} 
+    <primitive
+      object={clone}
       onPointerOver={(e: any) => {
         e.stopPropagation();
         onHover(name);
@@ -142,7 +142,7 @@ export function MuscleMap3D({ workedMuscles = [], onMuscleClick }: MuscleMap3DPr
   };
 
   return (
-    <div 
+    <div
       style={{ position: 'relative', width: '100%', height: '100%', cursor: hoveredMuscle ? 'pointer' : 'default' }}
       onPointerMove={handlePointerMove}
     >
@@ -154,7 +154,7 @@ export function MuscleMap3D({ workedMuscles = [], onMuscleClick }: MuscleMap3DPr
         <directionalLight position={[5, 10, 5]} intensity={1.5} />
         <directionalLight position={[-5, 5, -5]} intensity={0.8} />
         <Environment preset="city" />
-        
+
         <Suspense fallback={<Html center><div style={{ color: '#00F0FF', fontWeight: 600 }}>Loading...</div></Html>}>
           <Center>
             <group scale={10}>
@@ -173,8 +173,8 @@ export function MuscleMap3D({ workedMuscles = [], onMuscleClick }: MuscleMap3DPr
             </group>
           </Center>
         </Suspense>
-        
-        <OrbitControls 
+
+        <OrbitControls
           makeDefault
           target={[0, 0, 0]}
           enablePan={false}
@@ -186,11 +186,11 @@ export function MuscleMap3D({ workedMuscles = [], onMuscleClick }: MuscleMap3DPr
 
       {/* Tooltip */}
       {hoveredMuscle && (
-        <div 
+        <div
           className="fixed pointer-events-none z-50 bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-lg transform -translate-x-1/2 -translate-y-full transition-opacity duration-150"
-          style={{ 
-            left: mousePos.x, 
-            top: mousePos.y - 20 
+          style={{
+            left: mousePos.x,
+            top: mousePos.y - 20
           }}
         >
           {formatMuscleName(hoveredMuscle)}

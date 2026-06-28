@@ -15,13 +15,7 @@ export interface MuscleMap3DProps {
   onMuscleClick?: (muscle: string) => void;
 }
 
-// Preload models
-try {
-  useGLTF.preload('/muscles/body.glb');
-  MUSCLES.forEach((m) => useGLTF.preload(`/muscles/${m}.glb`));
-} catch (e) {
-  // Ignore
-}
+
 
 function BodyModel() {
   const { scene } = useGLTF('/muscles/body.glb');

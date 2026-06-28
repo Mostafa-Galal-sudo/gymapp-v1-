@@ -15,10 +15,10 @@ export interface MuscleMap3DProps {
   onMuscleClick?: (muscle: string) => void;
 }
 
-
+const BASE = window.location.origin;
 
 function BodyModel() {
-  const { scene } = useGLTF('/muscles/body.glb');
+  const { scene } = useGLTF(`${BASE}/muscles/body.glb`);
   const clone = useMemo(() => {
     const c = scene.clone();
     c.traverse((node) => {
@@ -50,7 +50,7 @@ interface MuscleMeshProps {
 }
 
 function MuscleMesh({ name, isWorked, isSelected, isHovered, onHover, onClick }: MuscleMeshProps) {
-  const { scene } = useGLTF(`/muscles/${name}.glb`);
+  const { scene } = useGLTF(`${BASE}/muscles/${name}.glb`);
   const clone = useMemo(() => {
     const c = scene.clone();
     c.traverse((node) => {
